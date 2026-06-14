@@ -75,6 +75,10 @@ function isTodoOrOpened(status: DirectoryStatus) {
   return status === 'todo' || status === 'opened';
 }
 
+export function getFast25Queue(directories: DirectoryWithProgress[]) {
+  return sortDirectoriesByDr(directories).filter(({ progress }) => isTodoOrOpened(progress.status)).slice(0, 25);
+}
+
 export function applySmartView(directories: DirectoryWithProgress[], view: SmartViewId) {
   const sorted = sortDirectoriesByDr(directories);
 
@@ -82,7 +86,7 @@ export function applySmartView(directories: DirectoryWithProgress[], view: Smart
     case 'start_here':
       return sorted.filter(({ progress }) => isTodoOrOpened(progress.status)).slice(0, 40);
     case 'fast_25':
-      return sorted.filter(({ progress }) => isTodoOrOpened(progress.status)).slice(0, 25);
+      return getFast25Queue(directories);
     case 'elite_50':
       return sorted.slice(0, 50);
     case 'ai_directories':

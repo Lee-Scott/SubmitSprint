@@ -1,10 +1,11 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 
 import { BackupControls } from './components/BackupControls';
 import { DirectoryTable } from './components/DirectoryTable';
 import { Header } from './components/Header';
 import { ProfilePanel } from './components/ProfilePanel';
 import { SmartViews } from './components/SmartViews';
+import { SprintPanel } from './components/SprintPanel';
 import { exportBackup, importBackupFile } from './lib/backup';
 import {
   applySmartView,
@@ -12,6 +13,7 @@ import {
   countStatuses,
   createEmptyProfile,
   defaultSmartView,
+  getFast25Queue,
   getBackupRecommendation,
   getCompletionPercentage,
   getDirectoryProgress,
@@ -43,8 +45,11 @@ import type {
   SmartViewId,
 } from './types';
 
+const sprintTerminalStatuses = new Set<DirectoryStatus>(['submitted', 'published', 'skipped']);
+
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const sprintPanelRef = useRef<HTMLDivElement | null>(null);
   const [records, setRecords] = useState<DirectoryRecord[]>([]);
   const [datasetVersion, setDatasetVersion] = useState<string>();
   const [profile, setProfile] = useState<StartupProfile>(() => loadProfile());
@@ -55,6 +60,9 @@ function App() {
   const [message, setMessage] = useState<string>('Loading directories...');
   const [loadError, setLoadError] = useState<string>();
   const [copyState, setCopyState] = useState<string>('');
+  const [sprintModeActive, setSprintModeActive] = useState(false);
+  const [sprintQueueIds, setSprintQueueIds] = useState<string[]>([]);
+  const [sprintCurrentId, setSprintCurrentId] = useState<string>();
 
   useEffect(() => {
     let active = true;
@@ -141,10 +149,28 @@ function App() {
   const completion = useMemo(() => getCompletionPercentage(statusCounts), [statusCounts]);
   const exportRecommendation = getBackupRecommendation(backupMeta.meaningfulChangesSinceExport);
   const lastBackupLabel = getLastBackupLabel(backupMeta.lastExportedAt);
+  const sprintQueue = useMemo(
+    () =>
+      sprintQueueIds
+        .map((directoryId) => mergedDirectories.find(({ record }) => record.id === directoryId))
+        .filter((entry): entry is DirectoryWithProgress => Boolean(entry)),
+    [mergedDirectories, sprintQueueIds],
+  );
+  const sprintActionableEntries = sprintQueue.filter(({ progress }) => progress.status === 'todo' || progress.status === 'opened');
+  const sprintCompletedCount = sprintQueue.filter(({ progress }) => sprintTerminalStatuses.has(progress.status)).length;
+  const sprintCurrentEntry =
+    sprintActionableEntries.find(({ record }) => record.id === sprintCurrentId) ??
+    sprintActionableEntries[0];
+  const sprintComplete = sprintModeActive && sprintQueue.length > 0 && sprintActionableEntries.length === 0;
 
   function focusWorkspace() {
     workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     window.setTimeout(() => workspaceRef.current?.focus(), 150);
+  }
+
+  function focusSprintPanel() {
+    sprintPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => sprintPanelRef.current?.focus(), 150);
   }
 
   function updateProgress(directoryId: string, updater: (current: DirectoryProgress) => DirectoryProgress) {
@@ -193,6 +219,30 @@ function App() {
 
       return next;
     });
+  }
+
+  function getNextSprintActionableId(fromId?: string) {
+    if (!sprintQueue.length) {
+      return undefined;
+    }
+
+    const actionableIds = sprintActionableEntries.map(({ record }) => record.id);
+
+    if (!actionableIds.length) {
+      return undefined;
+    }
+
+    if (!fromId) {
+      return actionableIds[0];
+    }
+
+    const currentIndex = actionableIds.indexOf(fromId);
+
+    if (currentIndex === -1) {
+      return actionableIds[0];
+    }
+
+    return actionableIds[(currentIndex + 1) % actionableIds.length];
   }
 
   function handleFieldChange(directoryId: string, field: 'liveUrl' | 'notes' | 'skipReason', value: string) {
@@ -270,12 +320,111 @@ function App() {
     setSettings({ activeView: defaultSmartView });
     setBackupMeta({ lastExportedAt: undefined, meaningfulChangesSinceExport: 0 });
     setMessage('Local progress reset');
+    setSprintModeActive(false);
+    setSprintQueueIds([]);
+    setSprintCurrentId(undefined);
   }
 
   function handleStartFast25() {
-    setSettings({ activeView: 'fast_25' });
+    const queue = getFast25Queue(mergedDirectories).map(({ record }) => record.id);
+    setSettings((current) => ({ ...current, activeView: 'fast_25' }));
+    setSprintModeActive(true);
+    setSprintQueueIds(queue);
+    setSprintCurrentId(queue[0]);
+    focusWorkspace();
+    window.setTimeout(() => focusSprintPanel(), 180);
+  }
+
+  function handleExitSprint() {
+    setSprintModeActive(false);
+    setSprintQueueIds([]);
+    setSprintCurrentId(undefined);
     focusWorkspace();
   }
+
+  function handleSprintNext() {
+    setSprintCurrentId(getNextSprintActionableId(sprintCurrentId));
+  }
+
+  function handleSprintFieldChange(field: 'liveUrl' | 'notes', value: string) {
+    if (!sprintCurrentEntry) {
+      return;
+    }
+
+    handleFieldChange(sprintCurrentEntry.record.id, field, value);
+  }
+
+  function handleSprintOpen() {
+    if (!sprintCurrentEntry) {
+      return;
+    }
+
+    handleOpen(sprintCurrentEntry.record);
+  }
+
+  function handleSprintStatusChange(status: DirectoryStatus) {
+    if (!sprintCurrentEntry) {
+      return;
+    }
+
+    const currentId = sprintCurrentEntry.record.id;
+    const nextId = sprintTerminalStatuses.has(status) ? getNextSprintActionableId(currentId) : currentId;
+    handleStatusChange(currentId, status);
+    setSprintCurrentId(nextId);
+  }
+
+  const handleSprintKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    function isTypingTarget(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+    }
+
+    if (isTypingTarget(event.target)) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+
+    if (key === 'escape') {
+      event.preventDefault();
+      handleExitSprint();
+      return;
+    }
+
+    if (!sprintCurrentEntry && !sprintComplete) {
+      return;
+    }
+
+    if (key === 'enter' || key === 'o') {
+      event.preventDefault();
+      handleSprintOpen();
+    } else if (key === 's') {
+      event.preventDefault();
+      handleSprintStatusChange('submitted');
+    } else if (key === 'k' || key === 'x') {
+      event.preventDefault();
+      handleSprintStatusChange('skipped');
+    } else if (key === 'n') {
+      event.preventDefault();
+      handleSprintNext();
+    }
+  });
+
+  useEffect(() => {
+    if (!sprintModeActive) {
+      return;
+    }
+
+    function listener(event: KeyboardEvent) {
+      handleSprintKeyDown(event);
+    }
+
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, [sprintModeActive]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(247,196,103,0.16),_transparent_28%),linear-gradient(180deg,_#f8f4ec_0%,_#f4efe6_42%,_#efe7da_100%)] text-stone-900">
@@ -320,6 +469,25 @@ function App() {
                 />
               </div>
             </div>
+
+            {sprintModeActive ? (
+              <div ref={sprintPanelRef} tabIndex={-1} className="focus:outline-none">
+                <SprintPanel
+                  completedCount={sprintCompletedCount}
+                  currentEntry={sprintCurrentEntry}
+                  isComplete={sprintComplete}
+                  onExit={handleExitSprint}
+                  onExport={handleExport}
+                  onFieldChange={handleSprintFieldChange}
+                  onNext={handleSprintNext}
+                  onOpen={handleSprintOpen}
+                  onPublished={() => handleSprintStatusChange('published')}
+                  onSkip={() => handleSprintStatusChange('skipped')}
+                  onSubmitted={() => handleSprintStatusChange('submitted')}
+                  totalCount={sprintQueue.length}
+                />
+              </div>
+            ) : null}
 
             <DirectoryTable
               directories={directories}
