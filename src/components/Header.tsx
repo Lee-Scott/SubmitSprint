@@ -17,6 +17,8 @@ type HeaderProps = {
   copyState: string;
   onExport: () => void;
   onStartFast25: () => void;
+  onUndo?: () => void;
+  undoLabel?: string;
 };
 
 export function Header({
@@ -29,6 +31,8 @@ export function Header({
   copyState,
   onExport,
   onStartFast25,
+  onUndo,
+  undoLabel,
 }: HeaderProps) {
   return (
     <header className="rounded-[30px] border border-stone-200 bg-white/92 px-4 py-4 shadow-[0_22px_50px_rgba(71,52,24,0.08)] sm:px-5">
@@ -58,6 +62,14 @@ export function Header({
                   type="button"
                 >
                   Export backup
+                </button>
+                <button
+                  className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 transition hover:border-stone-400 hover:bg-stone-100 disabled:cursor-not-allowed disabled:text-stone-400"
+                  disabled={!onUndo}
+                  onClick={onUndo}
+                  type="button"
+                >
+                  {undoLabel ?? 'Undo last action'}
                 </button>
               </div>
               <div className="text-xs font-medium text-stone-500">Free · No login · Saves in this browser</div>

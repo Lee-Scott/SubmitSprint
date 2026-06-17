@@ -3,18 +3,22 @@ import { useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import type { DirectoryStatus } from '../types';
+import { formatDate, getDirectoryOpenUrl, isFollowUpDue, isValidHttpUrl } from '../lib/directory';
 import type { DirectoryWithProgress } from '../lib/directory';
+import { createDirectoryReportMailto } from '../lib/feedback';
 
-const statusActions: DirectoryStatus[] = ['submitted', 'published', 'follow_up', 'skipped', 'broken'];
+const statusActions: DirectoryStatus[] = ['todo', 'opened', 'submitted', 'published', 'follow_up', 'skipped', 'broken'];
 
 type DirectoryTableProps = {
   directories: DirectoryWithProgress[];
+  onClearFollowUp: (directoryId: string) => void;
+  onFieldCommit: () => void;
   onOpen: (record: DirectoryWithProgress['record']) => void;
   onStatusChange: (directoryId: string, status: DirectoryStatus) => void;
   onFieldChange: (directoryId: string, field: 'liveUrl' | 'notes' | 'skipReason', value: string) => void;
 };
 
-export function DirectoryTable({ directories, onFieldChange, onOpen, onStatusChange }: DirectoryTableProps) {
+export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, onFieldCommit, onOpen, onStatusChange }: DirectoryTableProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
 
   const virtualizer = useVirtualizer({
@@ -43,6 +47,16 @@ export function DirectoryTable({ directories, onFieldChange, onOpen, onStatusCha
           {items.map((item) => {
             const entry = directories[item.index];
             const statusTone = statusColor(entry.progress.status);
+            const openUrl = getDirectoryOpenUrl(entry.record);
+            const canOpen = isValidHttpUrl(openUrl);
+            const followUpLabel = formatDate(entry.progress.followUpDueAt);
+            const needsFollowUp = isFollowUpDue(entry.progress);
+            const hasLiveUrlReadyForPublish = Boolean(entry.progress.liveUrl?.trim()) && ['todo', 'opened'].includes(entry.progress.status);
+            const linkWarning = entry.record.importerWarnings?.length
+              ? `Needs review: ${entry.record.importerWarnings.join(', ')}`
+              : entry.record.linkStatus && !['untested', 'reviewed'].includes(entry.record.linkStatus)
+                ? `Link ${entry.record.linkStatus.replace('_', ' ')}`
+                : undefined;
 
             return (
               <div
@@ -69,7 +83,21 @@ export function DirectoryTable({ directories, onFieldChange, onOpen, onStatusCha
                             {formatStatus(status)}
                           </button>
                         ))}
+                        {(entry.progress.followUpDueAt || entry.progress.status === 'follow_up') && (
+                          <button
+                            className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100"
+                            onClick={() => onClearFollowUp(entry.record.id)}
+                            type="button"
+                          >
+                            clear follow-up
+                          </button>
+                        )}
                       </div>
+                      {followUpLabel ? (
+                        <div className={`mt-2 text-[11px] font-medium ${needsFollowUp ? 'text-amber-800' : 'text-stone-500'}`}>
+                          Follow-up {needsFollowUp ? 'due' : 'due'} {followUpLabel}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="order-1 lg:order-none">
@@ -84,6 +112,7 @@ export function DirectoryTable({ directories, onFieldChange, onOpen, onStatusCha
                         </div>
                       </div>
                       {entry.record.tags?.length ? <div className="mt-2 text-xs text-stone-500">{entry.record.tags.join(' · ')}</div> : null}
+                      {linkWarning ? <div className="mt-2 text-xs font-medium text-amber-800">{linkWarning}</div> : null}
                     </div>
 
                     <div className="hidden lg:block">
@@ -94,12 +123,20 @@ export function DirectoryTable({ directories, onFieldChange, onOpen, onStatusCha
                     </div>
                     <div>
                       <button
-                        className="w-full rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 transition hover:bg-amber-300"
+                        className="w-full rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-500"
+                        disabled={!canOpen}
                         onClick={() => onOpen(entry.record)}
+                        title={canOpen ? openUrl : 'Invalid URL'}
                         type="button"
                       >
                         Open
                       </button>
+                      <a
+                        className="mt-2 block text-center text-xs font-semibold text-stone-500 underline decoration-stone-300 underline-offset-2 hover:text-stone-800"
+                        href={createDirectoryReportMailto(entry.record, entry.progress)}
+                      >
+                        Report
+                      </a>
                     </div>
                     <div>
                       <input
@@ -107,7 +144,17 @@ export function DirectoryTable({ directories, onFieldChange, onOpen, onStatusCha
                         placeholder="https://live-link"
                         value={entry.progress.liveUrl ?? ''}
                         onChange={(event) => onFieldChange(entry.record.id, 'liveUrl', event.target.value)}
+                        onBlur={onFieldCommit}
                       />
+                      {hasLiveUrlReadyForPublish ? (
+                        <button
+                          className="mt-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-900 transition hover:bg-emerald-100"
+                          onClick={() => onStatusChange(entry.record.id, 'published')}
+                          type="button"
+                        >
+                          Mark published
+                        </button>
+                      ) : null}
                     </div>
                     <div>
                       <textarea
@@ -115,6 +162,7 @@ export function DirectoryTable({ directories, onFieldChange, onOpen, onStatusCha
                         placeholder="Notes or skip reason"
                         value={entry.progress.notes ?? ''}
                         onChange={(event) => onFieldChange(entry.record.id, 'notes', event.target.value)}
+                        onBlur={onFieldCommit}
                       />
                     </div>
                   </div>

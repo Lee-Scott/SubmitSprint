@@ -1,0 +1,207 @@
+{
+  "appName": "SubmitSprint",
+  "generatedAt": "2026-06-17T23:29:05.930Z",
+  "source": "data/source/saas-directory.csv",
+  "headers": [
+    "Name",
+    "Domain",
+    "URL",
+    "Category",
+    "DR",
+    "Dofollow/Nofollow",
+    "Price model",
+    "Usecase",
+    "bf"
+  ],
+  "expectedHeaders": [
+    "Name",
+    "Domain",
+    "URL",
+    "Category",
+    "DR",
+    "Dofollow/Nofollow",
+    "Price model",
+    "Usecase",
+    "bf"
+  ],
+  "totalSourceRows": 1057,
+  "importedRecords": 1057,
+  "skippedRecords": 0,
+  "invalidUrls": 0,
+  "missingNames": 0,
+  "missingUrls": 0,
+  "missingCategories": 0,
+  "missingDr": 0,
+  "duplicateIds": 0,
+  "duplicateUrls": 0,
+  "duplicateDomains": 3,
+  "suspiciousLinks": 4,
+  "domainUrlMismatches": 4,
+  "recordsWithWarnings": 4,
+  "topWarnings": [
+    {
+      "warning": "domain_url_mismatch",
+      "count": 4
+    }
+  ],
+  "examples": {
+    "skippedRows": [],
+    "duplicateUrls": [],
+    "duplicateDomains": [
+      {
+        "domain": "reddit.com",
+        "count": 55,
+        "examples": [
+          {
+            "id": "reddit-com__root__reddit",
+            "name": "Reddit",
+            "url": "https://www.reddit.com/"
+          },
+          {
+            "id": "reddit-com__r-entrepreneurridealong__r-entrepreneurridealong",
+            "name": "R/Entrepreneurridealong/",
+            "url": "https://www.reddit.com/r/EntrepreneurRideAlong/"
+          },
+          {
+            "id": "reddit-com__r-imadethis__r-imadethis",
+            "name": "R/Imadethis/",
+            "url": "https://www.reddit.com/r/IMadeThis/"
+          },
+          {
+            "id": "reddit-com__r-entrepreneur__r-entrepreneur",
+            "name": "R/Entrepreneur",
+            "url": "https://reddit.com/r/Entrepreneur"
+          },
+          {
+            "id": "reddit-com__r-advancedentrepreneur__r-advancedentrepreneur",
+            "name": "R/Advancedentrepreneur/",
+            "url": "https://www.reddit.com/r/advancedentrepreneur/"
+          }
+        ]
+      },
+      {
+        "domain": "discord.gg",
+        "count": 9,
+        "examples": [
+          {
+            "id": "discord-gg__invite-urfqwswxvn__furlough",
+            "name": "Furlough",
+            "url": "https://discord.com/invite/UrFqwSwxvN"
+          },
+          {
+            "id": "discord-gg__stripe__stripe-discord-server",
+            "name": "Stripe Discord Server",
+            "url": "https://discord.gg/stripe"
+          },
+          {
+            "id": "discord-gg__invite-gyukvdggc6__tech-startup-community",
+            "name": "Tech Startup Community",
+            "url": "https://discord.com/invite/gyUKVDGGC6"
+          },
+          {
+            "id": "discord-gg__invite-zve8qjdwaf__makers-community",
+            "name": "Makers Community",
+            "url": "https://discord.com/invite/zvE8QjdWaf"
+          },
+          {
+            "id": "discord-gg__openai__openai-discord-server",
+            "name": "Openai Discord Server",
+            "url": "https://discord.gg/openai"
+          }
+        ]
+      },
+      {
+        "domain": "linkedin.com",
+        "count": 5,
+        "examples": [
+          {
+            "id": "linkedin-com__groups-1789386__band-of-entrepreneurs",
+            "name": "Band Of Entrepreneurs",
+            "url": "https://www.linkedin.com/groups/1789386/"
+          },
+          {
+            "id": "linkedin-com__groups-56766__startup-specialists-group",
+            "name": "Startup Specialists Group",
+            "url": "https://www.linkedin.com/groups/56766/"
+          },
+          {
+            "id": "linkedin-com__groups-1426__executive-suite",
+            "name": "Executive Suite",
+            "url": "https://www.linkedin.com/groups/1426/"
+          },
+          {
+            "id": "linkedin-com__groups-2877__on-startups",
+            "name": "On Startups",
+            "url": "https://www.linkedin.com/groups/2877/"
+          },
+          {
+            "id": "linkedin-com__groups-91749__entrepreneur-s-network",
+            "name": "Entrepreneur's Network",
+            "url": "https://www.linkedin.com/groups/91749"
+          }
+        ]
+      }
+    ],
+    "domainUrlMismatches": [
+      {
+        "id": "discord-gg__invite-urfqwswxvn__furlough",
+        "name": "Furlough",
+        "domain": "discord.gg",
+        "url": "https://discord.com/invite/UrFqwSwxvN"
+      },
+      {
+        "id": "discord-gg__invite-gyukvdggc6__tech-startup-community",
+        "name": "Tech Startup Community",
+        "domain": "discord.gg",
+        "url": "https://discord.com/invite/gyUKVDGGC6"
+      },
+      {
+        "id": "discord-gg__invite-zve8qjdwaf__makers-community",
+        "name": "Makers Community",
+        "domain": "discord.gg",
+        "url": "https://discord.com/invite/zvE8QjdWaf"
+      },
+      {
+        "id": "discord-gg__invite-aehwpvd7yf__retool-discord-server",
+        "name": "Retool Discord Server",
+        "domain": "discord.gg",
+        "url": "https://discord.com/invite/aEHwpVd7yF"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "discord-gg__invite-urfqwswxvn__furlough",
+        "name": "Furlough",
+        "url": "https://discord.com/invite/UrFqwSwxvN",
+        "warnings": [
+          "domain_url_mismatch"
+        ]
+      },
+      {
+        "id": "discord-gg__invite-gyukvdggc6__tech-startup-community",
+        "name": "Tech Startup Community",
+        "url": "https://discord.com/invite/gyUKVDGGC6",
+        "warnings": [
+          "domain_url_mismatch"
+        ]
+      },
+      {
+        "id": "discord-gg__invite-zve8qjdwaf__makers-community",
+        "name": "Makers Community",
+        "url": "https://discord.com/invite/zvE8QjdWaf",
+        "warnings": [
+          "domain_url_mismatch"
+        ]
+      },
+      {
+        "id": "discord-gg__invite-aehwpvd7yf__retool-discord-server",
+        "name": "Retool Discord Server",
+        "url": "https://discord.com/invite/aEHwpVd7yF",
+        "warnings": [
+          "domain_url_mismatch"
+        ]
+      }
+    ]
+  },
+  "dataVersion": "dataset-4044e4dc6fd3"
+}

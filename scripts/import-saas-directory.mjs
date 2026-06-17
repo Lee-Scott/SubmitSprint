@@ -8,9 +8,15 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const defaultSourcePath = path.join(rootDir, 'data', 'source', 'saas-directory.csv');
 const outputPath = path.join(rootDir, 'public', 'data', 'master_directories.json');
+const auditOutputPath = path.join(rootDir, 'reports', 'directory-link-audit.json');
+
+const expectedHeaders = ['Name', 'Domain', 'URL', 'Category', 'DR', 'Dofollow/Nofollow', 'Price model', 'Usecase', 'bf'];
+const urlHeaderCandidates = ['URL', 'Url', 'url'];
+const homepageHeaderCandidates = ['Homepage URL', 'HomepageUrl', 'homepageUrl', 'Homepage', 'Website', 'Website URL'];
+const submissionHeaderCandidates = ['Submission URL', 'SubmissionUrl', 'submissionUrl', 'Submit URL', 'SubmitUrl', 'submitUrl'];
 
 export function slugify(value) {
-  return value
+  return String(value)
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
@@ -20,12 +26,18 @@ export function slugify(value) {
 }
 
 export function normalizeUrl(value) {
-  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  const trimmed = String(value ?? '').trim();
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   const url = new URL(withProtocol);
-  url.hash = '';
+
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error(`Unsupported URL protocol: ${url.protocol}`);
+  }
+
   if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) {
     url.port = '';
   }
+
   return url;
 }
 
@@ -38,16 +50,49 @@ function normalizePathname(pathname) {
 }
 
 function normalizeText(value) {
-  return value?.trim() || undefined;
+  return String(value ?? '').trim() || undefined;
 }
 
 function parseNumber(value) {
-  if (!value?.trim()) {
+  if (!String(value ?? '').trim()) {
     return undefined;
   }
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function pickFirst(row, headers) {
+  for (const header of headers) {
+    const value = normalizeText(row[header]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeDomain(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/.*$/, '');
+}
+
+function normalizeBoolean(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'y', 'best', 'best-first', 'best first'].includes(normalized);
+}
+
+function normalizeOptionalUrl(value) {
+  if (!value) {
+    return undefined;
+  }
+
+  return normalizeUrl(value).toString();
 }
 
 export function normalizeTags(row) {
@@ -104,29 +149,183 @@ export function finalizeIds(records) {
   });
 }
 
-export function mapRowToRecord(row) {
+function compactRecord(record) {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && !(Array.isArray(value) && value.length === 0)));
+}
+
+function getWarningCounts(records) {
+  const counts = new Map();
+
+  for (const record of records) {
+    for (const warning of record.importerWarnings ?? []) {
+      counts.set(warning, (counts.get(warning) ?? 0) + 1);
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([warning, count]) => ({ warning, count }));
+}
+
+function countDuplicates(records, field) {
+  const counts = new Map();
+
+  for (const record of records) {
+    const value = record[field];
+    if (!value) {
+      continue;
+    }
+
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  return [...counts.entries()].filter(([, count]) => count > 1);
+}
+
+function attachDuplicateWarnings(records, field, warning) {
+  const duplicateValues = new Set(countDuplicates(records, field).map(([value]) => value));
+
+  if (!duplicateValues.size) {
+    return records;
+  }
+
+  return records.map((record) => {
+    if (!duplicateValues.has(record[field])) {
+      return record;
+    }
+
+    return {
+      ...record,
+      importerWarnings: [...new Set([...(record.importerWarnings ?? []), warning])],
+      linkStatus: record.linkStatus === 'suspicious' ? record.linkStatus : 'needs_review',
+    };
+  });
+}
+
+function buildAudit({ rows, records, skippedRows, headers }) {
+  const duplicateIdEntries = countDuplicates(records, 'id');
+  const duplicateUrlEntries = countDuplicates(records, 'url');
+  const duplicateDomainEntries = countDuplicates(records, 'domain');
+  const topWarnings = getWarningCounts(records);
+
+  return {
+    appName: 'SubmitSprint',
+    generatedAt: new Date().toISOString(),
+    source: 'data/source/saas-directory.csv',
+    headers,
+    expectedHeaders,
+    totalSourceRows: rows.length,
+    importedRecords: records.length,
+    skippedRecords: skippedRows.length,
+    invalidUrls: skippedRows.filter((row) => row.reason === 'invalid_url').length,
+    missingNames: skippedRows.filter((row) => row.reason === 'missing_name').length,
+    missingUrls: skippedRows.filter((row) => row.reason === 'missing_url').length,
+    missingCategories: records.filter((record) => !record.category).length,
+    missingDr: records.filter((record) => record.domainRating === undefined).length,
+    duplicateIds: duplicateIdEntries.length,
+    duplicateUrls: duplicateUrlEntries.length,
+    duplicateDomains: duplicateDomainEntries.length,
+    suspiciousLinks: records.filter((record) => record.linkStatus === 'suspicious').length,
+    domainUrlMismatches: records.filter((record) => record.importerWarnings?.includes('domain_url_mismatch')).length,
+    recordsWithWarnings: records.filter((record) => record.importerWarnings?.length).length,
+    topWarnings: topWarnings.slice(0, 12),
+    examples: {
+      skippedRows: skippedRows.slice(0, 20),
+      duplicateUrls: duplicateUrlEntries.slice(0, 20).map(([url, count]) => ({ url, count })),
+      duplicateDomains: duplicateDomainEntries
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+        .slice(0, 20)
+        .map(([domain, count]) => ({
+          domain,
+          count,
+          examples: records
+            .filter((record) => record.domain === domain)
+            .slice(0, 5)
+            .map((record) => ({ id: record.id, name: record.name, url: record.url })),
+        })),
+      domainUrlMismatches: records
+        .filter((record) => record.importerWarnings?.includes('domain_url_mismatch'))
+        .slice(0, 20)
+        .map((record) => ({ id: record.id, name: record.name, domain: record.domain, url: record.url })),
+      warnings: records
+        .filter((record) => record.importerWarnings?.length)
+        .slice(0, 30)
+        .map((record) => ({ id: record.id, name: record.name, url: record.url, warnings: record.importerWarnings })),
+    },
+  };
+}
+
+function stableRecordForHash(record) {
+  const { dataVersion, lastVerifiedAt, linkReviewedAt, ...stable } = record;
+  return stable;
+}
+
+export function mapRowToRecord(row, options = {}) {
+  const sourceRowNumber = options.sourceRowNumber;
   const name = normalizeText(row.Name);
-  const rawUrl = normalizeText(row.URL ?? row.Url ?? row.url);
+  const rawUrl = pickFirst(row, urlHeaderCandidates);
+  const warnings = [];
 
   if (!name || !rawUrl) {
     return null;
   }
 
-  const url = normalizeUrl(rawUrl);
-  const domain = normalizeText(row.Domain) ?? url.hostname.replace(/^www\./, '');
-  const category = normalizeText(row.Category)?.toLowerCase();
-  const tags = normalizeTags(row);
+  let url;
+  let homepageUrl;
+  let submissionUrl;
 
-  return {
+  try {
+    url = normalizeUrl(rawUrl);
+    homepageUrl = normalizeOptionalUrl(pickFirst(row, homepageHeaderCandidates)) ?? url.toString();
+    submissionUrl = normalizeOptionalUrl(pickFirst(row, submissionHeaderCandidates));
+  } catch {
+    return null;
+  }
+
+  const rawDomain = normalizeText(row.Domain);
+  const urlDomain = url.hostname.replace(/^www\./, '');
+  const domain = rawDomain ? normalizeDomain(rawDomain) : urlDomain;
+  const category = normalizeText(row.Category)?.toLowerCase();
+  const domainRating = parseNumber(row.DR);
+  const tags = normalizeTags(row);
+  const dofollow = normalizeText(row['Dofollow/Nofollow']);
+  const priceModel = normalizeText(row['Price model']);
+  const usecase = normalizeText(row.Usecase);
+  const bestFirst = normalizeBoolean(row.bf);
+
+  if (!category) {
+    warnings.push('missing_category');
+  }
+
+  if (domainRating === undefined) {
+    warnings.push('missing_dr');
+  }
+
+  if (rawDomain && normalizeDomain(rawDomain) !== urlDomain) {
+    warnings.push('domain_url_mismatch');
+  }
+
+  const linkStatus = warnings.includes('domain_url_mismatch') ? 'suspicious' : warnings.length ? 'needs_review' : 'untested';
+
+  return compactRecord({
+    id: '',
     name,
     url: url.toString(),
     domain,
-    domainRating: parseNumber(row.DR),
+    domainRating,
     category,
     tags,
     source: 'saas-directory.csv',
-    lastVerifiedAt: new Date().toISOString(),
-  };
+    homepageUrl,
+    submissionUrl,
+    sourceRowNumber,
+    priceModel,
+    dofollow,
+    usecase,
+    bestFirst,
+    linkStatus,
+    importerWarnings: warnings,
+  });
 }
 
 export function parseCsv(text) {
@@ -174,26 +373,93 @@ export function parseCsv(text) {
     rows.push(row);
   }
 
-  const [headerRow, ...dataRows] = rows;
-  return dataRows
+  const [headerRow = [], ...dataRows] = rows;
+  const headers = headerRow.map((header) => header.trim());
+  const parsedRows = dataRows
     .filter((cells) => cells.some((cell) => cell.trim() !== ''))
-    .map((cells) => Object.fromEntries(headerRow.map((header, index) => [header, cells[index] ?? ''])));
+    .map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ''])));
+
+  return parsedRows;
+}
+
+export function parseCsvWithHeaders(text) {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
+  const headers = firstLine.split(',').map((header) => header.trim());
+  return {
+    headers,
+    rows: parseCsv(text),
+  };
 }
 
 export async function importCsvFromText(text) {
-  const rows = parseCsv(text);
-  const mapped = rows.map(mapRowToRecord).filter(Boolean);
-  const records = finalizeIds(mapped);
-  const normalizedRecords = records.map((record) => ({ ...record, dataVersion: undefined }));
+  const { rows, headers } = parseCsvWithHeaders(text);
+  const skippedRows = [];
+  const mapped = [];
+
+  rows.forEach((row, index) => {
+    const sourceRowNumber = index + 2;
+    const hasName = Boolean(normalizeText(row.Name));
+    const hasUrl = Boolean(pickFirst(row, urlHeaderCandidates));
+
+    if (!hasName) {
+      skippedRows.push({ sourceRowNumber, reason: 'missing_name' });
+      return;
+    }
+
+    if (!hasUrl) {
+      skippedRows.push({ sourceRowNumber, reason: 'missing_url', name: normalizeText(row.Name) });
+      return;
+    }
+
+    const record = mapRowToRecord(row, { sourceRowNumber });
+
+    if (!record) {
+      skippedRows.push({ sourceRowNumber, reason: 'invalid_url', name: normalizeText(row.Name), url: pickFirst(row, urlHeaderCandidates) });
+      return;
+    }
+
+    mapped.push(record);
+  });
+
+  let records = finalizeIds(mapped);
+  records = attachDuplicateWarnings(records, 'url', 'duplicate_url');
+  records = attachDuplicateWarnings(records, 'id', 'duplicate_id');
+
+  const normalizedRecords = records.map(stableRecordForHash);
   const hash = createHash('sha256').update(JSON.stringify(normalizedRecords)).digest('hex').slice(0, 12);
   const dataVersion = `dataset-${hash}`;
+  const generatedAt = new Date().toISOString();
+  const recordsWithVersion = records.map((record) => ({ ...record, dataVersion }));
+  const audit = buildAudit({ rows, records: recordsWithVersion, skippedRows, headers });
 
   return {
     appName: 'SubmitSprint',
     dataVersion,
-    generatedAt: new Date().toISOString(),
-    totalRecords: records.length,
-    records: records.map((record) => ({ ...record, dataVersion })),
+    generatedAt,
+    totalRecords: recordsWithVersion.length,
+    records: recordsWithVersion,
+    audit: {
+      totalSourceRows: audit.totalSourceRows,
+      importedRecords: audit.importedRecords,
+      skippedRecords: audit.skippedRecords,
+      invalidUrls: audit.invalidUrls,
+      missingNames: audit.missingNames,
+      missingUrls: audit.missingUrls,
+      missingCategories: audit.missingCategories,
+      missingDr: audit.missingDr,
+      duplicateIds: audit.duplicateIds,
+      duplicateUrls: audit.duplicateUrls,
+      duplicateDomains: audit.duplicateDomains,
+      suspiciousLinks: audit.suspiciousLinks,
+      domainUrlMismatches: audit.domainUrlMismatches,
+      recordsWithWarnings: audit.recordsWithWarnings,
+      topWarnings: audit.topWarnings,
+    },
+    auditReport: {
+      ...audit,
+      dataVersion,
+      generatedAt,
+    },
   };
 }
 
@@ -217,9 +483,16 @@ async function main() {
   const source = process.argv[2];
   const csvText = await resolveInput(source);
   const payload = await importCsvFromText(csvText);
+  const { auditReport, ...dataset } = payload;
+
   await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  console.log(`Wrote ${payload.totalRecords} records to ${path.relative(rootDir, outputPath)} (${payload.dataVersion})`);
+  await mkdir(path.dirname(auditOutputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(dataset, null, 2)}\n`, 'utf8');
+  await writeFile(auditOutputPath, `${JSON.stringify(auditReport, null, 2)}\n`, 'utf8');
+
+  console.log(`Wrote ${dataset.totalRecords} records to ${path.relative(rootDir, outputPath)} (${dataset.dataVersion})`);
+  console.log(`Audit: ${auditReport.importedRecords}/${auditReport.totalSourceRows} imported, ${auditReport.recordsWithWarnings} records with warnings`);
+  console.log(`Audit report: ${path.relative(rootDir, auditOutputPath)}`);
 }
 
 if (process.argv[1] === __filename) {

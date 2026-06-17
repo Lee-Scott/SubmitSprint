@@ -1,14 +1,19 @@
 import type { ReactNode } from 'react';
 
+import { formatDate, getDirectoryOpenUrl, isFollowUpDue, isSprintActionableStatus, isValidHttpUrl } from '../lib/directory';
 import type { DirectoryWithProgress } from '../lib/directory';
+import { createDirectoryReportMailto } from '../lib/feedback';
 
 type SprintPanelProps = {
   currentEntry?: DirectoryWithProgress;
   totalCount: number;
   completedCount: number;
   isComplete: boolean;
+  onClearFollowUp: () => void;
   onExport: () => void;
   onExit: () => void;
+  onFieldCommit: () => void;
+  onFollowUp: () => void;
   onNext: () => void;
   onOpen: () => void;
   onSkip: () => void;
@@ -22,8 +27,11 @@ export function SprintPanel({
   totalCount,
   completedCount,
   isComplete,
+  onClearFollowUp,
   onExport,
   onExit,
+  onFieldCommit,
+  onFollowUp,
   onNext,
   onOpen,
   onSkip,
@@ -84,6 +92,11 @@ export function SprintPanel({
   }
 
   const { record, progress } = currentEntry;
+  const openUrl = getDirectoryOpenUrl(record);
+  const canOpen = isValidHttpUrl(openUrl);
+  const followUpLabel = formatDate(progress.followUpDueAt);
+  const needsFollowUp = isFollowUpDue(progress);
+  const hasLiveUrlReadyForPublish = Boolean(progress.liveUrl?.trim()) && isSprintActionableStatus(progress.status);
 
   return (
     <section className="mb-4 rounded-[26px] border border-stone-200 bg-[linear-gradient(180deg,_rgba(255,251,244,0.98),_rgba(249,244,235,0.96))] p-5 shadow-[0_18px_45px_rgba(82,53,20,0.08)]">
@@ -96,13 +109,17 @@ export function SprintPanel({
             <Badge>DR {record.domainRating ?? '—'}</Badge>
             <Badge>{record.category ?? 'Uncategorized'}</Badge>
             <Badge>Status {formatStatus(progress.status)}</Badge>
+            {followUpLabel ? <Badge>{needsFollowUp ? 'Follow-up due' : 'Follow-up'} {followUpLabel}</Badge> : null}
           </div>
           <div className="mt-4 space-y-1 text-sm text-stone-600">
             <div className="font-medium text-stone-900">{record.domain}</div>
-            <a className="break-all text-amber-800 underline decoration-amber-300 underline-offset-3" href={record.url} rel="noreferrer" target="_blank">
-              {record.url}
+            <a className="break-all text-amber-800 underline decoration-amber-300 underline-offset-3" href={openUrl} rel="noopener noreferrer" target="_blank">
+              {openUrl}
             </a>
           </div>
+          {record.importerWarnings?.length ? (
+            <div className="mt-3 text-xs font-medium text-amber-800">Needs review: {record.importerWarnings.join(', ')}</div>
+          ) : null}
           {record.tags?.length ? <div className="mt-3 text-xs text-stone-500">{record.tags.join(' · ')}</div> : null}
         </div>
 
@@ -117,8 +134,10 @@ export function SprintPanel({
 
       <div className="mt-5 flex flex-wrap gap-2">
         <button
-          className="rounded-full bg-amber-400 px-4 py-2.5 text-sm font-semibold text-stone-950 transition hover:bg-amber-300"
+          className="rounded-full bg-amber-400 px-4 py-2.5 text-sm font-semibold text-stone-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-500"
+          disabled={!canOpen}
           onClick={onOpen}
+          title={canOpen ? openUrl : 'Invalid URL'}
           type="button"
         >
           Open
@@ -138,6 +157,22 @@ export function SprintPanel({
           Published
         </button>
         <button
+          className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-900 transition hover:bg-violet-100"
+          onClick={onFollowUp}
+          type="button"
+        >
+          Mark Follow-Up
+        </button>
+        {(progress.followUpDueAt || progress.status === 'follow_up') && (
+          <button
+            className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
+            onClick={onClearFollowUp}
+            type="button"
+          >
+            Clear Follow-Up
+          </button>
+        )}
+        <button
           className="rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 transition hover:border-stone-400 hover:bg-stone-100"
           onClick={onSkip}
           type="button"
@@ -151,6 +186,12 @@ export function SprintPanel({
         >
           Next
         </button>
+        <a
+          className="rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:border-stone-400 hover:bg-stone-100"
+          href={createDirectoryReportMailto(record, progress)}
+        >
+          Report
+        </a>
       </div>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
@@ -161,7 +202,17 @@ export function SprintPanel({
             placeholder="https://live-link"
             value={progress.liveUrl ?? ''}
             onChange={(event) => onFieldChange('liveUrl', event.target.value)}
+            onBlur={onFieldCommit}
           />
+          {hasLiveUrlReadyForPublish ? (
+            <button
+              className="mt-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-900 transition hover:bg-emerald-100"
+              onClick={onPublished}
+              type="button"
+            >
+              Mark published
+            </button>
+          ) : null}
         </div>
         <div>
           <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Notes</label>
@@ -170,6 +221,7 @@ export function SprintPanel({
             placeholder="Notes or submission details"
             value={progress.notes ?? ''}
             onChange={(event) => onFieldChange('notes', event.target.value)}
+            onBlur={onFieldCommit}
           />
         </div>
       </div>

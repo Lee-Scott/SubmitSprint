@@ -4,24 +4,34 @@ import { BackupControls } from './components/BackupControls';
 import { DirectoryTable } from './components/DirectoryTable';
 import { Header } from './components/Header';
 import { ProfilePanel } from './components/ProfilePanel';
+import { PrivacyTerms } from './components/PrivacyTerms';
 import { SmartViews } from './components/SmartViews';
 import { SprintPanel } from './components/SprintPanel';
 import { exportBackup, importBackupFile } from './lib/backup';
 import {
   applySmartView,
+  buildStatusProgress,
+  clearFollowUp,
   countSmartViews,
   countStatuses,
   createEmptyProfile,
   defaultSmartView,
+  getDirectoryOpenUrl,
   getFast25Queue,
   getBackupRecommendation,
   getCompletionPercentage,
   getDirectoryProgress,
   getLastBackupLabel,
+  getNextActionableDirectoryId,
+  getOrphanProgressRecords,
+  isSprintActionableStatus,
+  isValidHttpUrl,
+  pruneOrphanProgress,
   searchDirectories,
   sortDirectoriesByDr,
   type DirectoryWithProgress,
 } from './lib/directory';
+import { createContactMailto, createGeneralIssueMailto, createSuggestDirectoryMailto } from './lib/feedback';
 import {
   copyText,
   loadBackupMeta,
@@ -50,6 +60,7 @@ const sprintTerminalStatuses = new Set<DirectoryStatus>(['submitted', 'published
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
   const sprintPanelRef = useRef<HTMLDivElement | null>(null);
+  const sprintActionLockRef = useRef(false);
   const [records, setRecords] = useState<DirectoryRecord[]>([]);
   const [datasetVersion, setDatasetVersion] = useState<string>();
   const [profile, setProfile] = useState<StartupProfile>(() => loadProfile());
@@ -63,6 +74,7 @@ function App() {
   const [sprintModeActive, setSprintModeActive] = useState(false);
   const [sprintQueueIds, setSprintQueueIds] = useState<string[]>([]);
   const [sprintCurrentId, setSprintCurrentId] = useState<string>();
+  const [lastUndo, setLastUndo] = useState<{ directoryId: string; previous: DirectoryProgress; label: string }>();
 
   useEffect(() => {
     let active = true;
@@ -102,11 +114,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    saveProfile(profile);
+    const timer = window.setTimeout(() => saveProfile(profile), 350);
+    return () => window.clearTimeout(timer);
   }, [profile]);
 
   useEffect(() => {
-    saveProgress(progressMap);
+    const timer = window.setTimeout(() => saveProgress(progressMap), 350);
+    return () => window.clearTimeout(timer);
   }, [progressMap]);
 
   useEffect(() => {
@@ -116,6 +130,22 @@ function App() {
   useEffect(() => {
     saveBackupMeta(backupMeta);
   }, [backupMeta]);
+
+  useEffect(() => {
+    function flushBeforeExit() {
+      saveProfile(profile);
+      saveProgress(progressMap);
+      saveSettings(settings);
+      saveBackupMeta(backupMeta);
+    }
+
+    window.addEventListener('pagehide', flushBeforeExit);
+    window.addEventListener('beforeunload', flushBeforeExit);
+    return () => {
+      window.removeEventListener('pagehide', flushBeforeExit);
+      window.removeEventListener('beforeunload', flushBeforeExit);
+    };
+  }, [backupMeta, profile, progressMap, settings]);
 
   useEffect(() => {
     if (!copyState) {
@@ -156,12 +186,13 @@ function App() {
         .filter((entry): entry is DirectoryWithProgress => Boolean(entry)),
     [mergedDirectories, sprintQueueIds],
   );
-  const sprintActionableEntries = sprintQueue.filter(({ progress }) => progress.status === 'todo' || progress.status === 'opened');
+  const sprintActionableEntries = sprintQueue.filter(({ progress }) => isSprintActionableStatus(progress.status));
   const sprintCompletedCount = sprintQueue.filter(({ progress }) => sprintTerminalStatuses.has(progress.status)).length;
   const sprintCurrentEntry =
     sprintActionableEntries.find(({ record }) => record.id === sprintCurrentId) ??
     sprintActionableEntries[0];
   const sprintComplete = sprintModeActive && sprintQueue.length > 0 && sprintActionableEntries.length === 0;
+  const orphanProgressRecords = useMemo(() => getOrphanProgressRecords(progressMap, records), [progressMap, records]);
 
   function focusWorkspace() {
     workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -173,76 +204,73 @@ function App() {
     window.setTimeout(() => sprintPanelRef.current?.focus(), 150);
   }
 
-  function updateProgress(directoryId: string, updater: (current: DirectoryProgress) => DirectoryProgress) {
+  function flushLocalState() {
+    saveProfile(profile);
+    saveProgress(progressMap);
+    saveSettings(settings);
+    saveBackupMeta(backupMeta);
+  }
+
+  function updateProgress(
+    directoryId: string,
+    updater: (current: DirectoryProgress) => DirectoryProgress,
+    options: { trackUndo?: boolean; undoLabel?: string; meaningful?: boolean } = {},
+  ) {
     setProgressMap((current) => {
-      const nextEntry = updater(getDirectoryProgress(current, directoryId));
+      const previousEntry = getDirectoryProgress(current, directoryId);
+      const nextEntry = updater(previousEntry);
+
+      if (options.trackUndo) {
+        setLastUndo({
+          directoryId,
+          previous: previousEntry,
+          label: options.undoLabel ?? 'last action',
+        });
+      }
+
       return {
         ...current,
         [directoryId]: nextEntry,
       };
     });
 
-    setBackupMeta((current) => ({
-      ...current,
-      meaningfulChangesSinceExport: current.meaningfulChangesSinceExport + 1,
-    }));
+    if (options.meaningful ?? true) {
+      setBackupMeta((current) => ({
+        ...current,
+        meaningfulChangesSinceExport: current.meaningfulChangesSinceExport + 1,
+      }));
+    }
   }
 
   function handleOpen(record: DirectoryRecord) {
+    const openUrl = getDirectoryOpenUrl(record);
+
+    if (!isValidHttpUrl(openUrl)) {
+      setMessage(`Invalid URL for ${record.name}`);
+      return;
+    }
+
     const progress = getDirectoryProgress(progressMap, record.id);
 
     if (progress.status === 'todo') {
-      updateProgress(record.id, (current) => ({
-        ...current,
-        status: 'opened',
-        openedAt: current.openedAt ?? new Date().toISOString(),
-        lastUpdatedAt: new Date().toISOString(),
-      }));
+      updateProgress(record.id, (current) => buildStatusProgress(current, 'opened', new Date(), 'open'), {
+        trackUndo: true,
+        undoLabel: `opening ${record.name}`,
+      });
     }
 
-    window.open(record.url, '_blank', 'noopener,noreferrer');
+    window.open(openUrl, '_blank', 'noopener,noreferrer');
   }
 
   function handleStatusChange(directoryId: string, status: DirectoryStatus) {
-    updateProgress(directoryId, (current) => {
-      const now = new Date().toISOString();
-      const next = {
-        ...current,
-        status,
-        lastUpdatedAt: now,
-      };
-
-      if (status === 'opened') next.openedAt = current.openedAt ?? now;
-      if (status === 'submitted') next.submittedAt = now;
-      if (status === 'published') next.publishedAt = now;
-      if (status === 'skipped') next.skippedAt = now;
-
-      return next;
+    updateProgress(directoryId, (current) => buildStatusProgress(current, status), {
+      trackUndo: true,
+      undoLabel: `marking ${status.replace('_', ' ')}`,
     });
   }
 
   function getNextSprintActionableId(fromId?: string) {
-    if (!sprintQueue.length) {
-      return undefined;
-    }
-
-    const actionableIds = sprintActionableEntries.map(({ record }) => record.id);
-
-    if (!actionableIds.length) {
-      return undefined;
-    }
-
-    if (!fromId) {
-      return actionableIds[0];
-    }
-
-    const currentIndex = actionableIds.indexOf(fromId);
-
-    if (currentIndex === -1) {
-      return actionableIds[0];
-    }
-
-    return actionableIds[(currentIndex + 1) % actionableIds.length];
+    return getNextActionableDirectoryId(sprintQueue, fromId);
   }
 
   function handleFieldChange(directoryId: string, field: 'liveUrl' | 'notes' | 'skipReason', value: string) {
@@ -251,6 +279,35 @@ function App() {
       [field]: value,
       lastUpdatedAt: new Date().toISOString(),
     }));
+  }
+
+  function handleClearFollowUp(directoryId: string) {
+    updateProgress(directoryId, (current) => clearFollowUp(current), {
+      trackUndo: true,
+      undoLabel: 'clearing follow-up',
+    });
+  }
+
+  function handleUndoLastAction() {
+    if (!lastUndo) {
+      return;
+    }
+
+    setProgressMap((current) => ({
+      ...current,
+      [lastUndo.directoryId]: {
+        ...lastUndo.previous,
+        lastUpdatedAt: new Date().toISOString(),
+        lastActionAt: new Date().toISOString(),
+        lastActionType: 'status',
+      },
+    }));
+    setBackupMeta((current) => ({
+      ...current,
+      meaningfulChangesSinceExport: current.meaningfulChangesSinceExport + 1,
+    }));
+    setMessage(`Undid ${lastUndo.label}`);
+    setLastUndo(undefined);
   }
 
   function handleProfileChange(field: keyof StartupProfile, value: string) {
@@ -290,6 +347,7 @@ function App() {
       currentProfile: profile,
       currentProgress: progressMap,
       currentSettings: settings,
+      validDirectoryIds: new Set(records.map((record) => record.id)),
     });
 
     if (!result.ok) {
@@ -305,6 +363,7 @@ function App() {
       meaningfulChangesSinceExport: 0,
     });
     setMessage(result.message);
+    setLastUndo(undefined);
   }
 
   function handleReset() {
@@ -323,11 +382,33 @@ function App() {
     setSprintModeActive(false);
     setSprintQueueIds([]);
     setSprintCurrentId(undefined);
+    setLastUndo(undefined);
+  }
+
+  function handlePruneOrphans() {
+    if (!orphanProgressRecords.length) {
+      return;
+    }
+
+    const confirmed = window.confirm('Export a backup, then remove saved progress that no longer matches the current dataset?');
+
+    if (!confirmed) {
+      return;
+    }
+
+    handleExport();
+    setProgressMap((current) => pruneOrphanProgress(current, records));
+    setBackupMeta((current) => ({
+      ...current,
+      meaningfulChangesSinceExport: current.meaningfulChangesSinceExport + 1,
+    }));
+    setMessage(`Cleaned up ${orphanProgressRecords.length} orphaned progress record${orphanProgressRecords.length === 1 ? '' : 's'}`);
   }
 
   function handleStartFast25() {
     const queue = getFast25Queue(mergedDirectories).map(({ record }) => record.id);
     setSettings((current) => ({ ...current, activeView: 'fast_25' }));
+    sprintActionLockRef.current = false;
     setSprintModeActive(true);
     setSprintQueueIds(queue);
     setSprintCurrentId(queue[0]);
@@ -339,11 +420,24 @@ function App() {
     setSprintModeActive(false);
     setSprintQueueIds([]);
     setSprintCurrentId(undefined);
+    sprintActionLockRef.current = false;
     focusWorkspace();
   }
 
+  function runSprintAction(action: () => void) {
+    if (sprintActionLockRef.current) {
+      return;
+    }
+
+    sprintActionLockRef.current = true;
+    action();
+    window.setTimeout(() => {
+      sprintActionLockRef.current = false;
+    }, 160);
+  }
+
   function handleSprintNext() {
-    setSprintCurrentId(getNextSprintActionableId(sprintCurrentId));
+    runSprintAction(() => setSprintCurrentId(getNextSprintActionableId(sprintCurrentId)));
   }
 
   function handleSprintFieldChange(field: 'liveUrl' | 'notes', value: string) {
@@ -367,10 +461,20 @@ function App() {
       return;
     }
 
-    const currentId = sprintCurrentEntry.record.id;
-    const nextId = sprintTerminalStatuses.has(status) ? getNextSprintActionableId(currentId) : currentId;
-    handleStatusChange(currentId, status);
-    setSprintCurrentId(nextId);
+    runSprintAction(() => {
+      const currentId = sprintCurrentEntry.record.id;
+      const nextId = sprintTerminalStatuses.has(status) ? getNextSprintActionableId(currentId) : currentId;
+      handleStatusChange(currentId, status);
+      setSprintCurrentId(nextId);
+    });
+  }
+
+  function handleSprintClearFollowUp() {
+    if (!sprintCurrentEntry) {
+      return;
+    }
+
+    handleClearFollowUp(sprintCurrentEntry.record.id);
   }
 
   const handleSprintKeyDown = useEffectEvent((event: KeyboardEvent) => {
@@ -439,6 +543,8 @@ function App() {
           message={loadError ?? message}
           onExport={handleExport}
           onStartFast25={handleStartFast25}
+          onUndo={lastUndo ? handleUndoLastAction : undefined}
+          undoLabel={lastUndo ? `Undo ${lastUndo.label}` : undefined}
         />
 
         <div className="mt-4 grid flex-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_340px]">
@@ -470,15 +576,34 @@ function App() {
               </div>
             </div>
 
+            {orphanProgressRecords.length ? (
+              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <div className="font-semibold">Some saved progress no longer matches the current dataset.</div>
+                <div className="mt-1">
+                  {orphanProgressRecords.length} saved record{orphanProgressRecords.length === 1 ? '' : 's'} will stay in your backup unless you clean them up.
+                </div>
+                <button
+                  className="mt-3 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
+                  onClick={handlePruneOrphans}
+                  type="button"
+                >
+                  Export backup and clean up
+                </button>
+              </div>
+            ) : null}
+
             {sprintModeActive ? (
               <div ref={sprintPanelRef} tabIndex={-1} className="focus:outline-none">
                 <SprintPanel
                   completedCount={sprintCompletedCount}
                   currentEntry={sprintCurrentEntry}
                   isComplete={sprintComplete}
+                  onClearFollowUp={handleSprintClearFollowUp}
                   onExit={handleExitSprint}
                   onExport={handleExport}
+                  onFieldCommit={flushLocalState}
                   onFieldChange={handleSprintFieldChange}
+                  onFollowUp={() => handleSprintStatusChange('follow_up')}
                   onNext={handleSprintNext}
                   onOpen={handleSprintOpen}
                   onPublished={() => handleSprintStatusChange('published')}
@@ -491,6 +616,8 @@ function App() {
 
             <DirectoryTable
               directories={directories}
+              onClearFollowUp={handleClearFollowUp}
+              onFieldCommit={flushLocalState}
               onFieldChange={handleFieldChange}
               onOpen={handleOpen}
               onStatusChange={handleStatusChange}
@@ -498,7 +625,7 @@ function App() {
           </main>
 
           <aside className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1">
-            <ProfilePanel profile={profile} onChange={handleProfileChange} onCopy={handleCopy} />
+            <ProfilePanel profile={profile} onChange={handleProfileChange} onCommit={flushLocalState} onCopy={handleCopy} />
             <BackupControls
               exportRecommendation={exportRecommendation}
               lastBackupLabel={lastBackupLabel}
@@ -518,11 +645,12 @@ function App() {
               <div>No login. Export your backup anytime.</div>
             </div>
             <div className="flex gap-4 text-sm text-stone-500">
-              <a href="#privacy">Privacy</a>
-              <a href="#terms">Terms</a>
-              <a href="#contact">Contact</a>
+              <a href={createSuggestDirectoryMailto()}>Suggest a directory</a>
+              <a href={createGeneralIssueMailto()}>Report an issue</a>
+              <a href={createContactMailto()}>Contact</a>
             </div>
           </div>
+          <PrivacyTerms />
         </footer>
       </div>
     </div>

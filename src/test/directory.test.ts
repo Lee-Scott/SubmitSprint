@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { applySmartView, countSmartViews, getCompletionPercentage, getFast25Queue, mergeProgressRecords } from '../lib/directory';
+import {
+  applySmartView,
+  buildStatusProgress,
+  clearFollowUp,
+  countSmartViews,
+  getCompletionPercentage,
+  getDirectoryOpenUrl,
+  getFast25Queue,
+  getNextActionableDirectoryId,
+  getOrphanProgressRecords,
+  isFollowUpDue,
+  isValidHttpUrl,
+  mergeProgressRecords,
+  pruneOrphanProgress,
+} from '../lib/directory';
 import type { DirectoryProgress, DirectoryRecord } from '../types';
 
 const records: DirectoryRecord[] = [
@@ -78,6 +92,24 @@ describe('smart views', () => {
       skipped: 0,
     });
   });
+
+  it('includes overdue submitted records in the follow-up view', () => {
+    const overdueMerged = [
+      {
+        record: records[0],
+        progress: {
+          directoryId: '1',
+          status: 'submitted' as const,
+          submittedAt: '2026-01-01T00:00:00.000Z',
+          followUpDueAt: '2026-01-15T00:00:00.000Z',
+          lastUpdatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      },
+      ...merged.slice(1),
+    ];
+
+    expect(applySmartView(overdueMerged, 'follow_up').map((entry) => entry.record.id)).toEqual(['1']);
+  });
 });
 
 describe('completion percentage', () => {
@@ -101,5 +133,69 @@ describe('mergeProgressRecords', () => {
     expect(result.importedCount).toBe(1);
     expect(result.merged['1'].status).toBe('published');
     expect(result.merged['2'].status).toBe('submitted');
+  });
+});
+
+describe('open URL helpers', () => {
+  it('prefers submissionUrl when present', () => {
+    expect(getDirectoryOpenUrl({ id: '1', name: 'A', domain: 'a.test', url: 'https://a.test', submissionUrl: 'https://a.test/submit' })).toBe('https://a.test/submit');
+  });
+
+  it('validates HTTP URLs only', () => {
+    expect(isValidHttpUrl('https://a.test')).toBe(true);
+    expect(isValidHttpUrl('mailto:test@example.com')).toBe(false);
+    expect(isValidHttpUrl('not a url')).toBe(false);
+  });
+});
+
+describe('follow-up helpers', () => {
+  it('sets a 14-day follow-up due date when submitted', () => {
+    const next = buildStatusProgress(
+      { directoryId: '1', status: 'opened', lastUpdatedAt: '2026-01-01T00:00:00.000Z' },
+      'submitted',
+      new Date('2026-01-01T00:00:00.000Z'),
+    );
+
+    expect(next.followUpDueAt).toBe('2026-01-15T00:00:00.000Z');
+    expect(isFollowUpDue(next, new Date('2026-01-14T23:59:59.000Z'))).toBe(false);
+    expect(isFollowUpDue(next, new Date('2026-01-15T00:00:00.000Z'))).toBe(true);
+  });
+
+  it('clears follow-up state without publishing', () => {
+    const next = clearFollowUp({
+      directoryId: '1',
+      status: 'follow_up',
+      followUpDueAt: '2026-01-15T00:00:00.000Z',
+      lastUpdatedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(next.status).toBe('submitted');
+    expect(next.followUpDueAt).toBeUndefined();
+  });
+});
+
+describe('sprint queue helpers', () => {
+  it('moves deterministically to the next actionable directory', () => {
+    const queue = [
+      { record: records[0], progress: { directoryId: '1', status: 'submitted' as const, lastUpdatedAt: '2026-01-01T00:00:00.000Z' } },
+      { record: records[1], progress: { directoryId: '2', status: 'todo' as const, lastUpdatedAt: '2026-01-01T00:00:00.000Z' } },
+      { record: records[2], progress: { directoryId: '3', status: 'opened' as const, lastUpdatedAt: '2026-01-01T00:00:00.000Z' } },
+    ];
+
+    expect(getNextActionableDirectoryId(queue)).toBe('2');
+    expect(getNextActionableDirectoryId(queue, '2')).toBe('3');
+    expect(getNextActionableDirectoryId(queue, '3')).toBe('2');
+  });
+});
+
+describe('orphan progress helpers', () => {
+  it('detects and prunes progress that no longer matches the dataset', () => {
+    const progress = {
+      '1': { directoryId: '1', status: 'opened' as const, lastUpdatedAt: '2026-01-01T00:00:00.000Z' },
+      orphan: { directoryId: 'orphan', status: 'submitted' as const, lastUpdatedAt: '2026-01-01T00:00:00.000Z' },
+    };
+
+    expect(getOrphanProgressRecords(progress, records).map((entry) => entry.directoryId)).toEqual(['orphan']);
+    expect(Object.keys(pruneOrphanProgress(progress, records))).toEqual(['1']);
   });
 });

@@ -1,3 +1,5 @@
+export type LinkStatus = 'untested' | 'reviewed' | 'suspicious' | 'broken' | 'needs_review';
+
 export type DirectoryRecord = {
   id: string;
   name: string;
@@ -9,6 +11,16 @@ export type DirectoryRecord = {
   source?: string;
   lastVerifiedAt?: string;
   dataVersion?: string;
+  homepageUrl?: string;
+  submissionUrl?: string;
+  sourceRowNumber?: number;
+  priceModel?: string;
+  dofollow?: string;
+  usecase?: string;
+  bestFirst?: boolean;
+  linkStatus?: LinkStatus;
+  linkReviewedAt?: string;
+  importerWarnings?: string[];
 };
 
 export type DirectoryStatus =
@@ -30,6 +42,9 @@ export type DirectoryProgress = {
   liveUrl?: string;
   notes?: string;
   skipReason?: string;
+  lastActionAt?: string;
+  lastActionType?: string;
+  followUpDueAt?: string;
   lastUpdatedAt: string;
 };
 
@@ -80,4 +95,23 @@ export type DatasetPayload = {
   generatedAt: string;
   totalRecords: number;
   records: DirectoryRecord[];
+  audit?: DirectoryLinkAuditSummary;
+};
+
+export type DirectoryLinkAuditSummary = {
+  totalSourceRows: number;
+  importedRecords: number;
+  skippedRecords: number;
+  invalidUrls: number;
+  missingNames: number;
+  missingUrls: number;
+  missingCategories: number;
+  missingDr: number;
+  duplicateIds: number;
+  duplicateUrls: number;
+  duplicateDomains: number;
+  suspiciousLinks: number;
+  domainUrlMismatches: number;
+  recordsWithWarnings: number;
+  topWarnings: Array<{ warning: string; count: number }>;
 };

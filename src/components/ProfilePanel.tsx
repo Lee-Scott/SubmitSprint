@@ -20,10 +20,11 @@ const fields: Array<{ key: keyof StartupProfile; label: string; rows?: number }>
 type ProfilePanelProps = {
   profile: StartupProfile;
   onChange: (field: keyof StartupProfile, value: string) => void;
+  onCommit: () => void;
   onCopy: (label: string, value: string) => void;
 };
 
-export function ProfilePanel({ profile, onChange, onCopy }: ProfilePanelProps) {
+export function ProfilePanel({ profile, onChange, onCommit, onCopy }: ProfilePanelProps) {
   const shortSubmission = [profile.startupName, profile.websiteUrl, profile.tagline, profile.shortDescription].filter(Boolean).join('\n');
   const longSubmission = [
     profile.startupName,
@@ -68,12 +69,14 @@ export function ProfilePanel({ profile, onChange, onCopy }: ProfilePanelProps) {
                 rows={field.rows}
                 value={profile[field.key]}
                 onChange={(event) => onChange(field.key, event.target.value)}
+                onBlur={onCommit}
               />
             ) : (
               <input
                 className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm outline-none transition focus:border-amber-400"
                 value={profile[field.key]}
                 onChange={(event) => onChange(field.key, event.target.value)}
+                onBlur={onCommit}
               />
             )}
           </label>
