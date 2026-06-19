@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate SubmitSprint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Import directory data
+        run: npm run import:data
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify runtime dataset
+        run: |
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('public/data/master_directories.json','utf8')); const n=x.records?.length ?? x.length; if(n!==1057){throw new Error('Expected 1057 public records, got '+n)}; console.log('public records:', n)"
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('dist/data/master_directories.json','utf8')); const n=x.records?.length ?? x.length; if(n!==1057){throw new Error('Expected 1057 dist records, got '+n)}; console.log('dist records:', n)"
