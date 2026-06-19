@@ -2,7 +2,7 @@ import { getDirectoryOpenUrl } from './directory';
 import type { DirectoryProgress, DirectoryRecord } from '../types';
 
 export const feedbackConfig = {
-  contactEmail: 'replace-before-launch@example.com',
+  contactEmail: 'familyfirstsoftware@gmail.com',
 } as const;
 
 type MailtoArgs = {
