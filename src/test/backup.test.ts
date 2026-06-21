@@ -120,6 +120,52 @@ describe('importBackupData', () => {
     expect(result.progressMap.orphan.status).toBe('submitted');
     expect(result.summary.orphaned).toBe(1);
   });
+
+  it('falls back to the current settings when imported activeView is invalid', () => {
+    const result = importBackupData(
+      backup({
+        settings: { activeView: 'not_real' },
+      }),
+      options,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.settings.activeView).toBe('start_here');
+  });
+
+  it('sanitizes invalid date and URL fields without rejecting the whole record', () => {
+    const result = importBackupData(
+      backup({
+        progressRecords: [
+          {
+            directoryId: 'new',
+            status: 'submitted',
+            lastUpdatedAt: 'not-a-date',
+            submittedAt: 'not-a-date',
+            followUpDueAt: 'still-not-a-date',
+            liveUrl: 'notaurl',
+          },
+        ],
+        startupProfile: {
+          ...createEmptyProfile(),
+          startupName: 'Imported Startup',
+          websiteUrl: 'notaurl',
+          updatedAt: 'not-a-date',
+        },
+      }),
+      options,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.progressMap.new.liveUrl).toBeUndefined();
+    expect(result.progressMap.new.submittedAt).toBeUndefined();
+    expect(result.progressMap.new.followUpDueAt).toBeUndefined();
+    expect(Number.isNaN(new Date(result.progressMap.new.lastUpdatedAt).getTime())).toBe(false);
+    expect(result.profile.websiteUrl).toBe('');
+    expect(result.profile.updatedAt).toBe('');
+  });
 });
 
 describe('sanitizeProgressRecord', () => {

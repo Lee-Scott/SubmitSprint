@@ -1,4 +1,5 @@
-import { createEmptyProfile } from './directory';
+import { createEmptyProfile, isValidHttpUrl } from './directory';
+import { BackupMetaSchema, DirectoryProgressSchema, SettingsStateSchema, StartupProfileSchema } from './schemas';
 import type { DirectoryProgress, SmartViewId, StartupProfile } from '../types';
 
 const storageKeys = {
@@ -26,21 +27,33 @@ const defaultBackupMeta: BackupMeta = {
   meaningfulChangesSinceExport: 0,
 };
 
-function readJson<T>(key: string, fallback: T): T {
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isValidDateString(value: string) {
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+function sanitizeStoredUrl(value: unknown) {
+  return typeof value === 'string' && isValidHttpUrl(value) ? value : '';
+}
+
+function readJson(key: string): unknown {
   if (typeof window === 'undefined') {
-    return fallback;
+    return undefined;
   }
 
   const raw = window.localStorage.getItem(key);
 
   if (!raw) {
-    return fallback;
+    return undefined;
   }
 
   try {
-    return JSON.parse(raw) as T;
+    return JSON.parse(raw) as unknown;
   } catch {
-    return fallback;
+    return undefined;
   }
 }
 
@@ -53,7 +66,18 @@ function writeJson<T>(key: string, value: T) {
 }
 
 export function loadProgress() {
-  return readJson<Record<string, DirectoryProgress>>(storageKeys.progress, {});
+  const candidate = readJson(storageKeys.progress);
+
+  if (!isObject(candidate)) {
+    return {};
+  }
+
+  const progressEntries = Object.values(candidate)
+    .map((value) => DirectoryProgressSchema.safeParse(value))
+    .filter((result) => result.success)
+    .map((result) => result.data);
+
+  return Object.fromEntries(progressEntries.map((record) => [record.directoryId, record]));
 }
 
 export function saveProgress(progress: Record<string, DirectoryProgress>) {
@@ -61,7 +85,32 @@ export function saveProgress(progress: Record<string, DirectoryProgress>) {
 }
 
 export function loadProfile(): StartupProfile {
-  return readJson<StartupProfile>(storageKeys.profile, createEmptyProfile());
+  const candidate = readJson(storageKeys.profile);
+  const emptyProfile = createEmptyProfile();
+
+  if (!isObject(candidate)) {
+    return emptyProfile;
+  }
+
+  const profileCandidate = {
+    startupName: typeof candidate.startupName === 'string' ? candidate.startupName : emptyProfile.startupName,
+    websiteUrl: sanitizeStoredUrl(candidate.websiteUrl),
+    tagline: typeof candidate.tagline === 'string' ? candidate.tagline : emptyProfile.tagline,
+    shortDescription: typeof candidate.shortDescription === 'string' ? candidate.shortDescription : emptyProfile.shortDescription,
+    longDescription: typeof candidate.longDescription === 'string' ? candidate.longDescription : emptyProfile.longDescription,
+    founderName: typeof candidate.founderName === 'string' ? candidate.founderName : emptyProfile.founderName,
+    contactEmail: typeof candidate.contactEmail === 'string' ? candidate.contactEmail : emptyProfile.contactEmail,
+    logoUrl: sanitizeStoredUrl(candidate.logoUrl),
+    category: typeof candidate.category === 'string' ? candidate.category : emptyProfile.category,
+    keywords: typeof candidate.keywords === 'string' ? candidate.keywords : emptyProfile.keywords,
+    xUrl: sanitizeStoredUrl(candidate.xUrl),
+    linkedinUrl: sanitizeStoredUrl(candidate.linkedinUrl),
+    demoUrl: sanitizeStoredUrl(candidate.demoUrl),
+    pricingSummary: typeof candidate.pricingSummary === 'string' ? candidate.pricingSummary : emptyProfile.pricingSummary,
+    updatedAt: typeof candidate.updatedAt === 'string' && isValidDateString(candidate.updatedAt) ? candidate.updatedAt : '',
+  };
+
+  return StartupProfileSchema.parse(profileCandidate);
 }
 
 export function saveProfile(profile: StartupProfile) {
@@ -69,7 +118,8 @@ export function saveProfile(profile: StartupProfile) {
 }
 
 export function loadSettings() {
-  return readJson<SettingsState>(storageKeys.settings, defaultSettings);
+  const result = SettingsStateSchema.safeParse(readJson(storageKeys.settings));
+  return result.success ? result.data : defaultSettings;
 }
 
 export function saveSettings(settings: SettingsState) {
@@ -77,7 +127,24 @@ export function saveSettings(settings: SettingsState) {
 }
 
 export function loadBackupMeta() {
-  return readJson<BackupMeta>(storageKeys.backupMeta, defaultBackupMeta);
+  const candidate = readJson(storageKeys.backupMeta);
+
+  if (!isObject(candidate)) {
+    return defaultBackupMeta;
+  }
+
+  const result = BackupMetaSchema.safeParse({
+    lastExportedAt:
+      typeof candidate.lastExportedAt === 'string' && isValidDateString(candidate.lastExportedAt)
+        ? candidate.lastExportedAt
+        : undefined,
+    meaningfulChangesSinceExport:
+      typeof candidate.meaningfulChangesSinceExport === 'number' && Number.isFinite(candidate.meaningfulChangesSinceExport)
+        ? Math.max(0, Math.trunc(candidate.meaningfulChangesSinceExport))
+        : 0,
+  });
+
+  return result.success ? result.data : defaultBackupMeta;
 }
 
 export function saveBackupMeta(meta: BackupMeta) {

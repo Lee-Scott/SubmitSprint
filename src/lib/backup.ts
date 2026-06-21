@@ -1,4 +1,5 @@
-import { createEmptyProfile, directoryStatuses, mergeProgressRecords } from './directory';
+import { createEmptyProfile, directoryStatuses, isValidHttpUrl, mergeProgressRecords } from './directory';
+import { DirectoryProgressSchema, SmartViewIdSchema } from './schemas';
 import type { DirectoryProgress, StartupProfile, SubmitSprintBackup } from '../types';
 import type { SettingsState } from './storage';
 
@@ -72,8 +73,18 @@ function sanitizeString(value: unknown, maxLength: number) {
   return value.slice(0, maxLength);
 }
 
+function isValidDateString(value: string) {
+  return !Number.isNaN(new Date(value).getTime());
+}
+
 function sanitizeDateString(value: unknown) {
-  return sanitizeString(value, maxDateLength);
+  const sanitized = sanitizeString(value, maxDateLength);
+  return sanitized && isValidDateString(sanitized) ? sanitized : undefined;
+}
+
+function sanitizeOptionalHttpUrl(value: unknown) {
+  const sanitized = sanitizeString(value, maxUrlLength);
+  return sanitized && isValidHttpUrl(sanitized) ? sanitized : undefined;
 }
 
 function sanitizeProfile(candidate: unknown) {
@@ -85,18 +96,18 @@ function sanitizeProfile(candidate: unknown) {
 
   const profile: StartupProfile = {
     startupName: sanitizeString(candidate.startupName, maxProfileFieldLength) ?? '',
-    websiteUrl: sanitizeString(candidate.websiteUrl, maxUrlLength) ?? '',
+    websiteUrl: sanitizeOptionalHttpUrl(candidate.websiteUrl) ?? '',
     tagline: sanitizeString(candidate.tagline, maxProfileFieldLength) ?? '',
     shortDescription: sanitizeString(candidate.shortDescription, maxProfileFieldLength) ?? '',
     longDescription: sanitizeString(candidate.longDescription, maxProfileFieldLength) ?? '',
     founderName: sanitizeString(candidate.founderName, maxProfileFieldLength) ?? '',
     contactEmail: sanitizeString(candidate.contactEmail, maxProfileFieldLength) ?? '',
-    logoUrl: sanitizeString(candidate.logoUrl, maxUrlLength) ?? '',
+    logoUrl: sanitizeOptionalHttpUrl(candidate.logoUrl) ?? '',
     category: sanitizeString(candidate.category, maxProfileFieldLength) ?? '',
     keywords: sanitizeString(candidate.keywords, maxProfileFieldLength) ?? '',
-    xUrl: sanitizeString(candidate.xUrl, maxUrlLength) ?? '',
-    linkedinUrl: sanitizeString(candidate.linkedinUrl, maxUrlLength) ?? '',
-    demoUrl: sanitizeString(candidate.demoUrl, maxUrlLength) ?? '',
+    xUrl: sanitizeOptionalHttpUrl(candidate.xUrl) ?? '',
+    linkedinUrl: sanitizeOptionalHttpUrl(candidate.linkedinUrl) ?? '',
+    demoUrl: sanitizeOptionalHttpUrl(candidate.demoUrl) ?? '',
     pricingSummary: sanitizeString(candidate.pricingSummary, maxProfileFieldLength) ?? '',
     updatedAt: sanitizeDateString(candidate.updatedAt) ?? '',
   };
@@ -113,8 +124,10 @@ function sanitizeSettings(candidate: unknown, fallback: SettingsState) {
     return fallback;
   }
 
-  if (typeof candidate.activeView === 'string') {
-    return { activeView: candidate.activeView as SettingsState['activeView'] };
+  const result = SmartViewIdSchema.safeParse(candidate.activeView);
+
+  if (result.success) {
+    return { activeView: result.data };
   }
 
   return fallback;
@@ -179,7 +192,7 @@ export function sanitizeProgressRecord(candidate: unknown) {
   const submittedAt = sanitizeDateString(candidate.submittedAt);
   const publishedAt = sanitizeDateString(candidate.publishedAt);
   const skippedAt = sanitizeDateString(candidate.skippedAt);
-  const liveUrl = sanitizeString(candidate.liveUrl, maxUrlLength);
+  const liveUrl = sanitizeOptionalHttpUrl(candidate.liveUrl);
   const notes = sanitizeString(candidate.notes, maxProgressTextLength);
   const skipReason = sanitizeString(candidate.skipReason, maxProgressTextLength);
   const lastActionAt = sanitizeDateString(candidate.lastActionAt);
@@ -197,7 +210,13 @@ export function sanitizeProgressRecord(candidate: unknown) {
   if (lastActionType) record.lastActionType = lastActionType;
   if (followUpDueAt) record.followUpDueAt = followUpDueAt;
 
-  return { ok: true as const, record };
+  const parsedRecord = DirectoryProgressSchema.safeParse(record);
+
+  if (!parsedRecord.success) {
+    return { ok: false as const };
+  }
+
+  return { ok: true as const, record: parsedRecord.data };
 }
 
 export function validateBackup(candidate: unknown): candidate is SubmitSprintBackup {

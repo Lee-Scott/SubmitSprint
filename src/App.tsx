@@ -32,6 +32,7 @@ import {
   type DirectoryWithProgress,
 } from './lib/directory';
 import { createContactMailto, createGeneralIssueMailto, createSuggestDirectoryMailto } from './lib/feedback';
+import { validateDatasetPayload } from './lib/schemas';
 import {
   copyText,
   loadBackupMeta,
@@ -47,7 +48,6 @@ import {
   type SettingsState,
 } from './lib/storage';
 import type {
-  DatasetPayload,
   DirectoryProgress,
   DirectoryRecord,
   DirectoryStatus,
@@ -87,13 +87,19 @@ function App() {
           throw new Error(`Failed to load directory dataset (${response.status})`);
         }
 
-        const payload = (await response.json()) as DatasetPayload;
+        const payloadResult = validateDatasetPayload(await response.json());
+
+        if (!payloadResult.success) {
+          throw new Error('Directory dataset is invalid');
+        }
+
+        const payload = payloadResult.data;
 
         if (!active) {
           return;
         }
 
-        setRecords(payload.records ?? []);
+        setRecords(payload.records);
         setDatasetVersion(payload.dataVersion);
         setMessage(`Loaded ${payload.records.length} directories`);
       } catch (error) {
