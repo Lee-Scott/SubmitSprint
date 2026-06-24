@@ -22,20 +22,20 @@ type SmartViewsProps = {
 
 export function SmartViews({ activeView, counts, onChange }: SmartViewsProps) {
   return (
-    <aside className="rounded-[28px] border border-stone-200 bg-white/88 p-3 shadow-[0_20px_45px_rgba(87,53,13,0.06)] backdrop-blur xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-auto">
-      <div className="mb-3 px-2">
-        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-stone-500">Smart views</div>
-        <p className="mt-1 text-sm text-stone-600">Start from the best directories, then narrow by status.</p>
+    <aside className="rounded-3xl border border-stone-200 bg-white/88 p-3 shadow-[0_18px_42px_rgba(87,53,13,0.06)] backdrop-blur xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-auto">
+      <div className="mb-2 px-2">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Smart views</div>
+        <p className="mt-1 text-sm text-stone-600 xl:block">Best directories first, then status.</p>
       </div>
 
-      <nav className="space-y-1">
+      <nav className="grid grid-cols-2 gap-1 sm:grid-cols-3 xl:block xl:space-y-1">
         {smartViews.map((view) => {
           const active = view.id === activeView;
 
           return (
             <button
               key={view.id}
-              className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left text-sm transition ${
+              className={`flex w-full items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left text-sm transition ${
                 active ? 'bg-stone-900 text-stone-50 shadow-[0_16px_30px_rgba(28,25,23,0.14)]' : 'bg-transparent text-stone-700 hover:bg-stone-100'
               }`}
               onClick={() => onChange(view.id)}

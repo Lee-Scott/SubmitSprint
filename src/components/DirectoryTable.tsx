@@ -24,15 +24,15 @@ export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, on
   const virtualizer = useVirtualizer({
     count: directories.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 260,
+    estimateSize: () => 236,
     overscan: 8,
   });
 
   const items = virtualizer.getVirtualItems();
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-[24px] border border-stone-200 bg-white">
-      <div className="hidden grid-cols-[110px_1.6fr_72px_110px_92px_150px_1.1fr] gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500 lg:grid">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-stone-200 bg-white">
+      <div className="hidden grid-cols-[116px_1.7fr_70px_118px_92px_150px_1.1fr] gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500 lg:grid">
         <div>Status</div>
         <div>Name</div>
         <div>DR</div>
@@ -63,20 +63,24 @@ export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, on
                 key={entry.record.id}
                 data-index={item.index}
                 ref={virtualizer.measureElement}
-                className="absolute left-0 top-0 w-full border-b border-stone-200 px-3 py-3 sm:px-4"
+                className="absolute left-0 top-0 w-full border-b border-stone-200 px-2.5 py-2.5 sm:px-4 sm:py-3"
                 style={{ transform: `translateY(${item.start}px)` }}
               >
-                <div className="rounded-[22px] bg-white lg:rounded-none lg:bg-transparent">
-                  <div className="grid gap-3 lg:grid-cols-[110px_1.6fr_72px_110px_92px_150px_1.1fr]">
+                <div className="rounded-2xl bg-stone-50/70 p-3 ring-1 ring-stone-100 lg:rounded-none lg:bg-transparent lg:p-0 lg:ring-0">
+                  <div className="grid gap-3 lg:grid-cols-[116px_1.7fr_70px_118px_92px_150px_1.1fr] lg:items-start">
                     <div className="order-2 lg:order-none">
                       <div className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusTone}`}>
                         {formatStatus(entry.progress.status)}
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-1">
+                      <div className="mt-2 grid grid-cols-2 gap-1 lg:flex lg:flex-wrap">
                         {statusActions.map((status) => (
                           <button
                             key={status}
-                            className="rounded-full border border-stone-200 px-2.5 py-1 text-[11px] text-stone-700 transition hover:border-stone-400"
+                            className={`rounded-full border px-2 py-1 text-[11px] transition hover:border-stone-400 ${
+                              status === entry.progress.status
+                                ? 'border-stone-400 bg-white font-semibold text-stone-900'
+                                : 'border-stone-200 bg-white/70 text-stone-700'
+                            }`}
                             onClick={() => onStatusChange(entry.record.id, status)}
                             type="button"
                           >
@@ -85,33 +89,33 @@ export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, on
                         ))}
                         {(entry.progress.followUpDueAt || entry.progress.status === 'follow_up') && (
                           <button
-                            className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100"
+                            className="col-span-2 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100 lg:col-span-1"
                             onClick={() => onClearFollowUp(entry.record.id)}
                             type="button"
                           >
-                            clear follow-up
+                            Clear follow-up
                           </button>
                         )}
                       </div>
                       {followUpLabel ? (
                         <div className={`mt-2 text-[11px] font-medium ${needsFollowUp ? 'text-amber-800' : 'text-stone-500'}`}>
-                          Follow-up {needsFollowUp ? 'due' : 'due'} {followUpLabel}
+                          {needsFollowUp ? 'Follow-up due' : 'Follow-up'} {followUpLabel}
                         </div>
                       ) : null}
                     </div>
 
                     <div className="order-1 lg:order-none">
                       <div className="flex flex-wrap items-start justify-between gap-2 lg:block">
-                        <div>
-                          <div className="font-semibold text-stone-900">{entry.record.name}</div>
-                          <div className="mt-1 text-sm text-stone-600">{entry.record.domain}</div>
+                        <div className="min-w-0">
+                          <div className="break-words text-base font-semibold leading-snug text-stone-950">{entry.record.name}</div>
+                          <div className="mt-0.5 break-all text-sm text-stone-600">{entry.record.domain}</div>
                         </div>
-                        <div className="flex items-center gap-2 lg:hidden">
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 lg:hidden">
                           <ScoreBadge value={entry.record.domainRating} />
                           <CategoryChip value={entry.record.category} />
                         </div>
                       </div>
-                      {entry.record.tags?.length ? <div className="mt-2 text-xs text-stone-500">{entry.record.tags.join(' · ')}</div> : null}
+                      {entry.record.tags?.length ? <div className="mt-2 line-clamp-2 text-xs leading-5 text-stone-500">{entry.record.tags.join(' · ')}</div> : null}
                       {linkWarning ? <div className="mt-2 text-xs font-medium text-amber-800">{linkWarning}</div> : null}
                     </div>
 
@@ -121,7 +125,7 @@ export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, on
                     <div className="hidden lg:block">
                       <CategoryChip value={entry.record.category} />
                     </div>
-                    <div>
+                    <div className="order-3 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 lg:order-none lg:block">
                       <button
                         className="w-full rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-500"
                         disabled={!canOpen}
@@ -132,15 +136,16 @@ export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, on
                         Open
                       </button>
                       <a
-                        className="mt-2 block text-center text-xs font-semibold text-stone-500 underline decoration-stone-300 underline-offset-2 hover:text-stone-800"
+                        className="block rounded-full border border-stone-200 bg-white px-3 py-2 text-center text-xs font-semibold text-stone-600 transition hover:border-stone-300 hover:bg-stone-50 lg:mt-2 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:underline lg:decoration-stone-300 lg:underline-offset-2 lg:hover:bg-transparent lg:hover:text-stone-800"
                         href={createDirectoryReportMailto(entry.record, entry.progress)}
                       >
                         Report
                       </a>
                     </div>
-                    <div>
+                    <div className="order-4 lg:order-none">
                       <input
-                        className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm outline-none transition focus:border-amber-400"
+                        aria-label={`${entry.record.name} live URL`}
+                        className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-amber-400 lg:bg-stone-50"
                         placeholder="https://live-link"
                         value={entry.progress.liveUrl ?? ''}
                         onChange={(event) => onFieldChange(entry.record.id, 'liveUrl', event.target.value)}
@@ -156,9 +161,10 @@ export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, on
                         </button>
                       ) : null}
                     </div>
-                    <div>
+                    <div className="order-5 lg:order-none">
                       <textarea
-                        className="min-h-20 w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm outline-none transition focus:border-amber-400"
+                        aria-label={`${entry.record.name} notes`}
+                        className="min-h-18 w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-amber-400 lg:min-h-20 lg:bg-stone-50"
                         placeholder="Notes or skip reason"
                         value={entry.progress.notes ?? ''}
                         onChange={(event) => onFieldChange(entry.record.id, 'notes', event.target.value)}

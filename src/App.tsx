@@ -538,7 +538,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(247,196,103,0.16),_transparent_28%),linear-gradient(180deg,_#f8f4ec_0%,_#f4efe6_42%,_#efe7da_100%)] text-stone-900">
-      <div className="mx-auto flex min-h-screen max-w-[1580px] flex-col px-4 py-4 sm:px-6">
+      <div className="mx-auto flex min-h-screen max-w-[1580px] flex-col px-3 py-3 sm:px-5 sm:py-4">
         <Header
           completion={completion}
           counts={statusCounts}
@@ -553,7 +553,7 @@ function App() {
           undoLabel={lastUndo ? `Undo ${lastUndo.label}` : undefined}
         />
 
-        <div className="mt-4 grid flex-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_340px]">
+        <div className="mt-3 grid flex-1 gap-3 xl:grid-cols-[210px_minmax(0,1fr)_330px]">
           <SmartViews
             activeView={settings.activeView}
             counts={smartViewCounts}
@@ -562,16 +562,16 @@ function App() {
 
           <main
             ref={workspaceRef}
-            className="flex min-h-[70vh] flex-col rounded-[28px] border border-stone-200 bg-white/90 p-4 shadow-[0_20px_55px_rgba(82,53,20,0.07)] backdrop-blur focus:outline-none"
+            className="flex min-h-[68vh] flex-col rounded-3xl border border-stone-200 bg-white/90 p-3 shadow-[0_18px_48px_rgba(82,53,20,0.07)] backdrop-blur focus:outline-none sm:p-4"
             tabIndex={-1}
           >
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h2 className="font-display text-2xl tracking-tight text-stone-900">Directory sprint board</h2>
-                <p className="text-sm text-stone-600">Pick a view, open a listing, copy your profile, then mark progress.</p>
+                <h2 className="font-display text-[1.45rem] tracking-tight text-stone-900 sm:text-2xl">Directory sprint board</h2>
+                <p className="text-sm text-stone-600">Open, submit, publish, and follow up without leaving the board.</p>
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
                 <span className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Search</span>
                 <input
                   className="w-full min-w-0 rounded-full border border-stone-200 bg-stone-50 px-4 py-2 text-sm outline-none transition focus:border-amber-400 sm:w-72"
@@ -579,7 +579,7 @@ function App() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
-              </div>
+              </label>
             </div>
 
             {orphanProgressRecords.length ? (
@@ -630,7 +630,7 @@ function App() {
             />
           </main>
 
-          <aside className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1">
+          <aside className="space-y-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1">
             <ProfilePanel profile={profile} onChange={handleProfileChange} onCommit={flushLocalState} onCopy={handleCopy} />
             <BackupControls
               exportRecommendation={exportRecommendation}
@@ -643,7 +643,7 @@ function App() {
           </aside>
         </div>
 
-        <footer className="mt-4 rounded-[28px] border border-stone-200 bg-white/88 px-4 py-5 text-sm text-stone-600 shadow-[0_18px_45px_rgba(82,53,20,0.05)]">
+        <footer className="mt-3 rounded-3xl border border-stone-200 bg-white/88 px-4 py-4 text-sm text-stone-600 shadow-[0_18px_45px_rgba(82,53,20,0.05)]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="font-semibold text-stone-900">SubmitSprint</div>
