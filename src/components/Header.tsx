@@ -80,7 +80,7 @@ export function Header({
                 </button>
               </div>
               <div className="text-xs font-medium text-stone-500">
-                Free. No login. Progress saves in this browser.
+                Free. Guest mode saves progress in this browser.
               </div>
             </div>
           </div>

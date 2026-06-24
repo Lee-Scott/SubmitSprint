@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 
 import { BackupControls } from './components/BackupControls';
+import { AuthPanel } from './components/AuthPanel';
 import { DirectoryDetailDrawer } from './components/DirectoryDetailDrawer';
 import { DirectoryTable } from './components/DirectoryTable';
 import { Header } from './components/Header';
@@ -722,6 +723,7 @@ function App() {
           </main>
 
           <aside className="space-y-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-auto xl:pr-1">
+            <AuthPanel />
             <ProfilePanel profile={profile} onChange={handleProfileChange} onCommit={flushLocalState} onCopy={handleCopy} />
             <BackupControls
               exportRecommendation={exportRecommendation}
@@ -739,7 +741,7 @@ function App() {
             <div>
               <div className="font-semibold text-stone-900">SubmitSprint</div>
               <div>Free startup directory submission tracker</div>
-              <div>No login. Export your backup anytime.</div>
+              <div>Guest mode works without login. Export your backup anytime.</div>
             </div>
             <div className="flex gap-4 text-sm text-stone-500">
               <a href={createSuggestDirectoryMailto()}>Suggest a directory</a>

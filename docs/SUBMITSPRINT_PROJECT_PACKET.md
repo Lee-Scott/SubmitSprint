@@ -20,30 +20,39 @@ Deployment is static. README documents Cloudflare Pages and Vercel with `npm run
 - Styling: Tailwind CSS `^4.3.0` through `@tailwindcss/vite` `^4.3.0`; styles are in `src/index.css` and Tailwind utility classes.
 - Test runner: Vitest `^4.1.8`, configured with `environment: 'node'` in `vite.config.ts`.
 - Linting: ESLint `^10.3.0`, `typescript-eslint`, React Hooks and React Refresh plugins.
+- Runtime validation: Zod `^4.4.3` in `src/lib/schemas.ts` for localStorage hydration, dataset payloads, progress records, settings, and sprint-session state.
+- Optional account-mode foundation: `@supabase/supabase-js` with Vite env vars `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Missing env vars fall back to guest mode without creating a Supabase client.
 - Table/virtualization: `@tanstack/react-virtual` `^3.14.2` in `src/components/DirectoryTable.tsx`.
 - Data/import tooling: Node script `scripts/import-saas-directory.mjs`, using built-in `fs/promises`, `path`, `url`, `crypto`, and global `fetch` for optional remote CSV input.
 - Package manager: npm, inferred from `package-lock.json` lockfile version 3 and CI using `npm ci`.
 - Node version: `.node-version` and `.nvmrc` both specify `22`.
-- Deployment assumptions: static `dist` output, no environment variables per README, Cloudflare Pages/Vercel supported; `.env.example` was absent.
+- Deployment assumptions: static `dist` output, Cloudflare Pages/Vercel supported. Supabase env vars are optional and only needed to enable account mode.
 
 ## 4. App Structure
 
 - `src/main.tsx`: React entrypoint.
-- `src/App.tsx`: top-level app state and orchestration. Fetches the dataset, owns profile/progress/settings/backup metadata state, wires backup import/export, search, smart views, sprint mode, reset, orphan cleanup, and persistence.
+- `src/App.tsx`: top-level app state and orchestration. Fetches and validates the dataset, owns profile/progress/settings/backup metadata/sprint-session state, wires backup import/export, search, smart views, sprint mode, reset, orphan cleanup, account panel rendering, and persistence.
 - `src/types.ts`: shared TypeScript types for directory records, progress records, startup profile, backup payload, smart views, and dataset/audit payloads.
-- `src/lib/storage.ts`: localStorage keys, JSON read/write helpers, persistence functions, clipboard helper, and local reset helper.
+- `src/lib/storage.ts`: localStorage keys, Zod-backed JSON hydration helpers, persistence functions, clipboard helper, and local reset helper.
 - `src/lib/backup.ts`: backup creation/export and backup import validation/sanitization.
+- `src/lib/cloud-storage.ts`: pure mapping helpers between SubmitSprint state and Supabase table rows, plus local-to-cloud progress merge logic for the upcoming migration flow.
 - `src/lib/directory.ts`: directory status helpers, smart view filtering/counting, search, sorting, URL validation, follow-up logic, progress merging, and orphan progress helpers.
 - `src/lib/feedback.ts`: mailto helpers for contact/report/suggest flows.
+- `src/lib/schemas.ts`: Zod schemas for progress, settings, dataset payloads, directory records, and sprint sessions.
+- `src/lib/sessions.ts`: submission sprint session queue, navigation, completion, pruning, and summary helpers.
+- `src/lib/supabase.ts`: optional Supabase runtime config and browser client creation.
+- `src/components/AuthPanel.tsx`: compact account/guest-mode panel with Supabase Auth sign up, sign in, sign out, and missing-env fallback.
 - `src/components/Header.tsx`: top summary/header controls.
 - `src/components/SmartViews.tsx`: smart view navigation.
 - `src/components/DirectoryTable.tsx`: virtualized directory list, status actions, open/report links, live URL and notes inputs.
-- `src/components/SprintPanel.tsx`: focused Fast 25 sprint workflow.
+- `src/components/DirectoryDetailDrawer.tsx`: per-directory workspace drawer with copy, status, metadata, and notes controls.
+- `src/components/SprintSessionPanel.tsx`: focused submission sprint session workflow.
 - `src/components/ProfilePanel.tsx`: startup profile form and copy actions.
 - `src/components/BackupControls.tsx`: backup export/import/reset UI.
 - `src/components/PrivacyTerms.tsx`: footer privacy/terms copy.
-- `src/test/`: Vitest tests for backup, directory helpers, feedback helpers, and the importer. Top-level `test/` and `tests/` folders were absent.
-- `docs/`: folder was absent before this packet was created.
+- `src/test/`: Vitest tests for backup, cloud mapping, directory helpers, feedback helpers, importer, schemas, sessions, storage, and Supabase config. Top-level `test/` and `tests/` folders were absent.
+- `supabase/migrations/0001_initial_submitsprint_schema.sql`: initial account-mode schema with RLS policies for user-owned rows.
+- `docs/`: local workflow, verification, architecture, Supabase setup, v2 roadmap, and project packet docs.
 
 ## 5. Runtime Data Model
 
@@ -102,27 +111,33 @@ All keys are defined in `src/lib/storage.ts` and used through `src/App.tsx`.
   - Expected shape: `Record<string, DirectoryProgress>`.
   - Record fields include `directoryId`, `status`, optional timestamps (`openedAt`, `submittedAt`, `publishedAt`, `skippedAt`, `followUpDueAt`, `lastActionAt`), optional text fields (`liveUrl`, `notes`, `skipReason`, `lastActionType`), and required `lastUpdatedAt`.
   - Read by `loadProgress`; written by `saveProgress`; reset by `resetProgressState`.
-  - Risk: malformed JSON falls back to `{}`, but valid JSON with the wrong structure is trusted and can produce invalid statuses or UI/count inconsistencies.
+  - Current guardrail: malformed JSON and wrong-shaped records are skipped through `DirectoryProgressSchema`.
 
 - `submitsprint.profile.v1`
   - Stores `StartupProfile`.
   - Expected fields: `startupName`, `websiteUrl`, `tagline`, `shortDescription`, `longDescription`, `founderName`, `contactEmail`, `logoUrl`, `category`, `keywords`, `xUrl`, `linkedinUrl`, `demoUrl`, `pricingSummary`, `updatedAt`.
   - Read by `loadProfile`; written by `saveProfile`; reset by `resetProgressState`.
-  - Risk: valid but structurally wrong JSON is not hydrated through the stricter backup sanitizers.
+  - Current guardrail: wrong-shaped fields fall back to empty profile defaults, URL-like fields must be valid `http(s)` URLs, and invalid dates are cleared.
 
 - `submitsprint.settings.v1`
   - Stores settings.
   - Expected shape: `{ activeView: SmartViewId }`.
   - Read by `loadSettings`; written by `saveSettings`; reset by `resetProgressState`.
-  - Risk: an invalid `activeView` string is trusted during hydration and may fall through smart-view logic.
+  - Current guardrail: invalid active views fall back to `start_here` through `SettingsStateSchema`.
 
 - `submitsprint.backupMeta.v1`
   - Stores backup metadata.
   - Expected shape: `{ lastExportedAt?: string; meaningfulChangesSinceExport: number }`.
   - Read by `loadBackupMeta`; written by `saveBackupMeta`; reset by `resetProgressState`.
-  - Risk: stale or malformed-but-parseable values can misstate backup recommendations or labels.
+  - Current guardrail: invalid dates are cleared and malformed change counts fall back to `0`.
 
-All four keys use a `.v1` suffix. No migration layer was found beyond changing key names/version suffixes.
+- `submitsprint.sprintSession.v1`
+  - Stores the current local submission sprint session.
+  - Expected shape: `SubmissionSprintSession`.
+  - Read by `loadSprintSession`; written by `saveSprintSession`; reset by `resetProgressState`.
+  - Current guardrail: malformed session JSON is rejected through `SubmissionSprintSessionSchema`.
+
+All keys use a `.v1` suffix. No key-version migration layer was found beyond changing key names/version suffixes.
 
 ## 7. Backup / Import / Export Behavior
 
@@ -160,9 +175,9 @@ Import validation and sanitization:
 - `validateBackup` requires object payload, `appName === 'SubmitSprint'`, `schemaVersion === 1`, array `progressRecords`, and object `startupProfile`.
 - `sanitizeProgressRecord` requires object records with valid `directoryId` and a status in `directoryStatuses`; invalid records are counted and skipped.
 - Profile fields are sanitized to strings with length caps; empty imported profiles do not overwrite a useful current profile.
-- Progress text/date/url-like fields are truncated by length, but date and URL strings are not semantically validated during backup import.
+- Progress text/date/url-like fields are length-limited; date fields must parse as valid dates and URL-like fields must be valid `http(s)` URLs.
 - Safe unknown progress fields are preserved if the key matches a conservative identifier regex and the value is string/number/boolean.
-- Settings import only checks that `activeView` is a string; it does not verify the value is a valid `SmartViewId`.
+- Settings import validates `activeView` against `SmartViewIdSchema` and falls back to current settings when invalid.
 - Orphaned progress records are counted when `validDirectoryIds` is provided, but they are still merged into progress.
 
 Failure handling:
@@ -171,12 +186,10 @@ Failure handling:
 - Partial import of valid progress records continues when some progress records are invalid.
 - `App.tsx` displays the import result message and clears undo on success.
 
-Risks from malformed backup JSON:
+Remaining risks from malformed backup JSON:
 
 - Large files are read with `file.text()`; no explicit file size limit was found.
-- Dates and URL-like fields are length-limited but not date/URL validated.
 - Imported orphan progress remains saved until the user chooses orphan cleanup.
-- Imported settings can carry an invalid active view string.
 
 ## 8. Static Data Import Pipeline
 
@@ -211,7 +224,7 @@ Validation currently present:
 - Duplicate URLs and duplicate IDs attach warnings and set `linkStatus` to `needs_review` unless already `suspicious`.
 - Duplicate domains are counted in audit only; duplicate-domain warnings are not attached to records.
 - `expectedHeaders` is defined and included in the audit report, but the importer does not appear to fail when headers differ.
-- No runtime schema validation of the final JSON file was found in the app loader.
+- Runtime app loading validates the fetched dataset with `DatasetPayloadSchema` before using records.
 
 Warnings/errors emitted:
 
@@ -223,20 +236,22 @@ Pipeline risks:
 
 - Custom CSV parser may not cover every CSV edge case.
 - Header drift is audited but not blocked.
-- Generated JSON structure is trusted by the app after fetch.
+- Generated JSON structure is validated by the app after fetch, but importer-side schema enforcement can still be improved.
 - URL syntax is normalized, but link reachability is not tested.
 - Duplicate domains can be legitimate directory subcommunities but can also hide duplicate or low-quality paths.
 
 ## 9. Known Risks / Upgrade Opportunities
 
-- LocalStorage migration/versioning: keys have `.v1`, but there is no migration or structural validation for parseable stale state.
-- Backup validation: backup import has useful schema gating and sanitization, but active view, dates, URL fields, file size, and orphan policy could be stricter.
-- Generated JSON validation: `App.tsx` casts fetched JSON to `DatasetPayload`; malformed generated JSON could lead to runtime UI issues.
+- Account-mode cloud sync: Supabase Auth/config, schema, RLS, and mapping helpers now exist, but profile/progress/settings/session data does not yet persist to Supabase.
+- Local-to-cloud migration: merge logic has pure tests, but the signed-in migration prompt and cloud write path are not implemented.
+- LocalStorage migration/versioning: keys have `.v1`, but there is no key-version migration layer beyond changing key names/version suffixes.
+- Backup validation: backup import has useful schema gating and sanitization, but file size and orphan policy could be stricter.
+- Generated dataset validation: runtime loading validates the fetched JSON, but importer-side schema enforcement could still be improved.
 - URL/link quality: importer validates URL syntax, not reachability, redirects, submission-page intent, or broken links.
 - Duplicate domains/paths: duplicate URLs/IDs are handled with warnings; duplicate domains are audit-only and may need review rules.
-- Test coverage: tests exist for backup, importer, directory helpers, and feedback; no browser/component/e2e tests were found for localStorage hydration, UI import flow, or dataset fetch failures.
+- Test coverage: tests exist for backup, cloud mapping, storage hydration, schemas, importer, directory helpers, sessions, and feedback; no browser/component/e2e tests were found for auth UI, local-to-cloud migration UI, backup import UI, or dataset fetch failures.
 - UI/data consistency: category values are lowercased source values and include mixed language/transliteration; smart views depend on keyword matching against category/tags.
-- Deployment/static asset risks: the runtime depends on `/data/master_directories.json` being present in the deployed static output; CI verifies 1,057 records in both `public` and `dist`, but deploy config must preserve the `dist/data` asset.
+- Deployment/static asset risks: the runtime depends on `/data/master_directories.json` being present in the deployed static output; deploy config must preserve the `dist/data` asset. Account mode additionally requires public Supabase Vite env vars.
 
 ## 10. Test and Build Commands
 
@@ -266,27 +281,27 @@ Script details from `package.json`:
 - `test`: `vitest run`
 - `preview`: `vite preview`
 
-## 11. Recommended First Technical Batches
+## 11. Recommended Next Technical Batches
 
-1. Add schema validation for backup import.
-   - Likely files: `src/lib/backup.ts`, `src/test/backup.test.ts`.
+1. Add cloud data service functions around Supabase.
+   - Likely files: `src/lib/cloud-storage.ts`, new `src/lib/cloud-service.ts`, `src/test/`.
    - Validate with: `npm test`.
 
-2. Validate localStorage hydration.
-   - Likely files: `src/lib/storage.ts`, new or existing storage-focused tests under `src/test/`.
-   - Validate with: `npm test`.
+2. Add sign-in bootstrap and local-to-cloud migration prompt.
+   - Likely files: `src/App.tsx`, `src/components/AuthPanel.tsx`, new migration component/helper tests.
+   - Validate with: `npm test`, `npm run build`, and guest-mode browser smoke.
 
-3. Add structural validation to `import-saas-directory.mjs`.
+3. Add debounced account-mode saves with visible sync status.
+   - Likely files: `src/App.tsx`, cloud service helpers, account UI.
+   - Validate with mocked Supabase tests and manual Supabase smoke when env vars are available.
+
+4. Add importer-side structural validation.
    - Likely files: `scripts/import-saas-directory.mjs`, `src/test/importer.test.ts`.
    - Validate with: `npm test` and `npm run import:data`.
 
-4. Add URL/link-quality checks.
+5. Add URL/link-quality checks.
    - Likely files: `scripts/import-saas-directory.mjs`, possibly `reports/directory-link-audit.json`, `src/test/importer.test.ts`.
    - Validate with: `npm test` and `npm run import:data`.
-
-5. Add tests for malformed imports and generated directory records.
-   - Likely files: `src/test/backup.test.ts`, `src/test/importer.test.ts`, possibly a new dataset validation test under `src/test/`.
-   - Validate with: `npm test`.
 
 ## 12. Repo-Local Workflow Docs
 

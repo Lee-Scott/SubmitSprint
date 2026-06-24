@@ -51,6 +51,9 @@ Then smoke the relevant workflow:
 - No localStorage schema change without a migration plan.
 - No backup import/export compatibility change without a migration plan.
 - No backend dependency introduced unless approved.
+- Account-mode changes must build without `VITE_SUPABASE_URL` and
+  `VITE_SUPABASE_ANON_KEY`; if env vars are unavailable, report that full
+  Supabase auth/manual sync smoke was not run.
 - No deployment config modified unless required.
 - No generated artifacts committed accidentally.
 
