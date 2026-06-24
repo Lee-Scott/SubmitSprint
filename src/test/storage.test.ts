@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createEmptyProfile } from '../lib/directory';
-import { loadBackupMeta, loadProfile, loadProgress, loadSettings } from '../lib/storage';
+import { loadBackupMeta, loadProfile, loadProgress, loadSettings, loadSprintSession } from '../lib/storage';
 
 const storageKeys = {
   progress: 'submitsprint.progress.v1',
   profile: 'submitsprint.profile.v1',
   settings: 'submitsprint.settings.v1',
   backupMeta: 'submitsprint.backupMeta.v1',
+  sprintSession: 'submitsprint.sprintSession.v1',
 } as const;
 
 function installWindow() {
@@ -105,5 +106,42 @@ describe('storage hydration', () => {
       lastExportedAt: undefined,
       meaningfulChangesSinceExport: 0,
     });
+  });
+
+  it('loads valid sprint session state and rejects malformed sessions', () => {
+    const storage = installWindow();
+    storage.set(
+      storageKeys.sprintSession,
+      JSON.stringify({
+        id: 'session-1',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        queueType: 'fast_25',
+        queueName: 'Fast 25',
+        directoryIds: ['one', 'two'],
+        currentDirectoryId: 'one',
+        currentIndex: 0,
+        initialCount: 2,
+        sessionNotes: 'Good sprint',
+        state: 'active',
+      }),
+    );
+
+    expect(loadSprintSession()?.directoryIds).toEqual(['one', 'two']);
+
+    storage.set(
+      storageKeys.sprintSession,
+      JSON.stringify({
+        id: 'bad',
+        startedAt: 'not-a-date',
+        queueType: 'fast_25',
+        queueName: 'Fast 25',
+        directoryIds: ['one'],
+        currentIndex: 0,
+        initialCount: 1,
+        state: 'active',
+      }),
+    );
+
+    expect(loadSprintSession()).toBeUndefined();
   });
 });

@@ -1,12 +1,13 @@
 import { createEmptyProfile, isValidHttpUrl } from './directory';
-import { BackupMetaSchema, DirectoryProgressSchema, SettingsStateSchema, StartupProfileSchema } from './schemas';
-import type { DirectoryProgress, SmartViewId, StartupProfile } from '../types';
+import { BackupMetaSchema, DirectoryProgressSchema, SettingsStateSchema, StartupProfileSchema, SubmissionSprintSessionSchema } from './schemas';
+import type { DirectoryProgress, SmartViewId, StartupProfile, SubmissionSprintSession } from '../types';
 
 const storageKeys = {
   progress: 'submitsprint.progress.v1',
   profile: 'submitsprint.profile.v1',
   settings: 'submitsprint.settings.v1',
   backupMeta: 'submitsprint.backupMeta.v1',
+  sprintSession: 'submitsprint.sprintSession.v1',
 } as const;
 
 export type SettingsState = {
@@ -149,6 +150,23 @@ export function loadBackupMeta() {
 
 export function saveBackupMeta(meta: BackupMeta) {
   writeJson(storageKeys.backupMeta, meta);
+}
+
+export function loadSprintSession() {
+  const result = SubmissionSprintSessionSchema.safeParse(readJson(storageKeys.sprintSession));
+  return result.success ? result.data : undefined;
+}
+
+export function saveSprintSession(session?: SubmissionSprintSession) {
+  if (!session) {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(storageKeys.sprintSession);
+    }
+    return;
+  }
+
+  // Sprint sessions are intentionally local-only UI workflow state and are not included in backup files.
+  writeJson(storageKeys.sprintSession, session);
 }
 
 export async function copyText(value: string) {

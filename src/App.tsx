@@ -7,7 +7,7 @@ import { Header } from './components/Header';
 import { ProfilePanel } from './components/ProfilePanel';
 import { PrivacyTerms } from './components/PrivacyTerms';
 import { SmartViews } from './components/SmartViews';
-import { SprintPanel } from './components/SprintPanel';
+import { SprintSessionPanel } from './components/SprintSessionPanel';
 import { exportBackup, importBackupFile } from './lib/backup';
 import {
   applySmartView,
@@ -18,14 +18,11 @@ import {
   createEmptyProfile,
   defaultSmartView,
   getDirectoryOpenUrl,
-  getFast25Queue,
   getBackupRecommendation,
   getCompletionPercentage,
   getDirectoryProgress,
   getLastBackupLabel,
-  getNextActionableDirectoryId,
   getOrphanProgressRecords,
-  isSprintActionableStatus,
   isValidHttpUrl,
   pruneOrphanProgress,
   searchDirectories,
@@ -35,16 +32,30 @@ import {
 import { createContactMailto, createGeneralIssueMailto, createSuggestDirectoryMailto } from './lib/feedback';
 import { validateDatasetPayload } from './lib/schemas';
 import {
+  completeSprintSession,
+  createSprintSession,
+  getCurrentSessionEntry,
+  getSessionEntries,
+  getSessionQueue,
+  getSprintSessionSummary,
+  isSprintSessionComplete,
+  moveSession,
+  moveSessionToNextActionable,
+  sessionTerminalStatuses,
+} from './lib/sessions';
+import {
   copyText,
   loadBackupMeta,
   loadProfile,
   loadProgress,
   loadSettings,
+  loadSprintSession,
   resetProgressState,
   saveBackupMeta,
   saveProfile,
   saveProgress,
   saveSettings,
+  saveSprintSession,
   type BackupMeta,
   type SettingsState,
 } from './lib/storage';
@@ -52,29 +63,27 @@ import type {
   DirectoryProgress,
   DirectoryRecord,
   DirectoryStatus,
+  SprintSessionType,
   StartupProfile,
   SmartViewId,
+  SubmissionSprintSession,
 } from './types';
-
-const sprintTerminalStatuses = new Set<DirectoryStatus>(['submitted', 'published', 'skipped']);
 
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
-  const sprintPanelRef = useRef<HTMLDivElement | null>(null);
-  const sprintActionLockRef = useRef(false);
+  const sessionPanelRef = useRef<HTMLDivElement | null>(null);
+  const sessionActionLockRef = useRef(false);
   const [records, setRecords] = useState<DirectoryRecord[]>([]);
   const [datasetVersion, setDatasetVersion] = useState<string>();
   const [profile, setProfile] = useState<StartupProfile>(() => loadProfile());
   const [progressMap, setProgressMap] = useState<Record<string, DirectoryProgress>>(() => loadProgress());
   const [settings, setSettings] = useState<SettingsState>(() => loadSettings());
   const [backupMeta, setBackupMeta] = useState<BackupMeta>(() => loadBackupMeta());
+  const [sprintSession, setSprintSession] = useState<SubmissionSprintSession | undefined>(() => loadSprintSession());
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState<string>('Loading directories...');
   const [loadError, setLoadError] = useState<string>();
   const [copyState, setCopyState] = useState<string>('');
-  const [sprintModeActive, setSprintModeActive] = useState(false);
-  const [sprintQueueIds, setSprintQueueIds] = useState<string[]>([]);
-  const [sprintCurrentId, setSprintCurrentId] = useState<string>();
   const [selectedDirectoryId, setSelectedDirectoryId] = useState<string>();
   const [lastUndo, setLastUndo] = useState<{ directoryId: string; previous: DirectoryProgress; label: string }>();
 
@@ -140,11 +149,16 @@ function App() {
   }, [backupMeta]);
 
   useEffect(() => {
+    saveSprintSession(sprintSession);
+  }, [sprintSession]);
+
+  useEffect(() => {
     function flushBeforeExit() {
       saveProfile(profile);
       saveProgress(progressMap);
       saveSettings(settings);
       saveBackupMeta(backupMeta);
+      saveSprintSession(sprintSession);
     }
 
     window.addEventListener('pagehide', flushBeforeExit);
@@ -153,7 +167,7 @@ function App() {
       window.removeEventListener('pagehide', flushBeforeExit);
       window.removeEventListener('beforeunload', flushBeforeExit);
     };
-  }, [backupMeta, profile, progressMap, settings]);
+  }, [backupMeta, profile, progressMap, settings, sprintSession]);
 
   useEffect(() => {
     if (!copyState) {
@@ -187,33 +201,57 @@ function App() {
   const completion = useMemo(() => getCompletionPercentage(statusCounts), [statusCounts]);
   const exportRecommendation = getBackupRecommendation(backupMeta.meaningfulChangesSinceExport);
   const lastBackupLabel = getLastBackupLabel(backupMeta.lastExportedAt);
-  const sprintQueue = useMemo(
-    () =>
-      sprintQueueIds
-        .map((directoryId) => mergedDirectories.find(({ record }) => record.id === directoryId))
-        .filter((entry): entry is DirectoryWithProgress => Boolean(entry)),
-    [mergedDirectories, sprintQueueIds],
-  );
-  const sprintActionableEntries = sprintQueue.filter(({ progress }) => isSprintActionableStatus(progress.status));
-  const sprintCompletedCount = sprintQueue.filter(({ progress }) => sprintTerminalStatuses.has(progress.status)).length;
-  const sprintCurrentEntry =
-    sprintActionableEntries.find(({ record }) => record.id === sprintCurrentId) ??
-    sprintActionableEntries[0];
-  const sprintComplete = sprintModeActive && sprintQueue.length > 0 && sprintActionableEntries.length === 0;
   const orphanProgressRecords = useMemo(() => getOrphanProgressRecords(progressMap, records), [progressMap, records]);
   const selectedDirectoryEntry = useMemo(
     () => mergedDirectories.find(({ record }) => record.id === selectedDirectoryId),
     [mergedDirectories, selectedDirectoryId],
   );
+  const sessionEntries = useMemo(
+    () => (sprintSession ? getSessionEntries(sprintSession, mergedDirectories) : []),
+    [mergedDirectories, sprintSession],
+  );
+  const sessionCurrentEntry = useMemo(
+    () => (sprintSession ? getCurrentSessionEntry(sprintSession, mergedDirectories) : undefined),
+    [mergedDirectories, sprintSession],
+  );
+  const sessionSummary = useMemo(
+    () => (sprintSession ? getSprintSessionSummary(sessionEntries) : undefined),
+    [sessionEntries, sprintSession],
+  );
+  const sessionQueueCounts = useMemo(() => ({
+    fast_25: getSessionQueue('fast_25', mergedDirectories, settings.activeView, directories).length,
+    elite_50: getSessionQueue('elite_50', mergedDirectories, settings.activeView, directories).length,
+    start_here: getSessionQueue('start_here', mergedDirectories, settings.activeView, directories).length,
+    continue_unfinished: getSessionQueue('continue_unfinished', mergedDirectories, settings.activeView, directories).length,
+    current_smart_view: directories.length,
+  }), [directories, mergedDirectories, settings.activeView]);
+
+  useEffect(() => {
+    if (sprintSession?.state !== 'active' || !isSprintSessionComplete(sessionEntries)) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setSprintSession((current) => {
+        if (!current || current.state !== 'active') {
+          return current;
+        }
+
+        return completeSprintSession(current);
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [sessionEntries, sprintSession?.state]);
 
   function focusWorkspace() {
     workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     window.setTimeout(() => workspaceRef.current?.focus(), 150);
   }
 
-  function focusSprintPanel() {
-    sprintPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    window.setTimeout(() => sprintPanelRef.current?.focus(), 150);
+  function focusSessionPanel() {
+    sessionPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => sessionPanelRef.current?.focus(), 150);
   }
 
   function flushLocalState() {
@@ -279,10 +317,6 @@ function App() {
       trackUndo: true,
       undoLabel: `marking ${status.replace('_', ' ')}`,
     });
-  }
-
-  function getNextSprintActionableId(fromId?: string) {
-    return getNextActionableDirectoryId(sprintQueue, fromId);
   }
 
   function handleFieldChange(directoryId: string, field: 'liveUrl' | 'notes' | 'skipReason', value: string) {
@@ -376,6 +410,7 @@ function App() {
     });
     setMessage(result.message);
     setLastUndo(undefined);
+    setSprintSession(undefined);
     if (selectedDirectoryId && !records.some((record) => record.id === selectedDirectoryId)) {
       setSelectedDirectoryId(undefined);
     }
@@ -394,9 +429,7 @@ function App() {
     setSettings({ activeView: defaultSmartView });
     setBackupMeta({ lastExportedAt: undefined, meaningfulChangesSinceExport: 0 });
     setMessage('Local progress reset');
-    setSprintModeActive(false);
-    setSprintQueueIds([]);
-    setSprintCurrentId(undefined);
+    setSprintSession(undefined);
     setSelectedDirectoryId(undefined);
     setLastUndo(undefined);
   }
@@ -421,79 +454,123 @@ function App() {
     setMessage(`Cleaned up ${orphanProgressRecords.length} orphaned progress record${orphanProgressRecords.length === 1 ? '' : 's'}`);
   }
 
+  function handleStartSession(type: SprintSessionType) {
+    const queue = getSessionQueue(type, mergedDirectories, settings.activeView, directories);
+    const session = createSprintSession(type, queue);
+    setSprintSession(session);
+
+    if (type === 'fast_25' || type === 'elite_50' || type === 'start_here') {
+      setSettings((current) => ({ ...current, activeView: type }));
+    }
+
+    sessionActionLockRef.current = false;
+    focusWorkspace();
+    window.setTimeout(() => focusSessionPanel(), 180);
+  }
+
   function handleStartFast25() {
-    const queue = getFast25Queue(mergedDirectories).map(({ record }) => record.id);
-    setSettings((current) => ({ ...current, activeView: 'fast_25' }));
-    sprintActionLockRef.current = false;
-    setSprintModeActive(true);
-    setSprintQueueIds(queue);
-    setSprintCurrentId(queue[0]);
-    focusWorkspace();
-    window.setTimeout(() => focusSprintPanel(), 180);
+    handleStartSession('fast_25');
   }
 
-  function handleExitSprint() {
-    setSprintModeActive(false);
-    setSprintQueueIds([]);
-    setSprintCurrentId(undefined);
-    sprintActionLockRef.current = false;
+  function handleEndSession() {
+    setSprintSession((current) => {
+      if (!current) {
+        return undefined;
+      }
+
+      return current.state === 'active' ? completeSprintSession(current) : undefined;
+    });
+    sessionActionLockRef.current = false;
     focusWorkspace();
   }
 
-  function runSprintAction(action: () => void) {
-    if (sprintActionLockRef.current) {
+  function runSessionAction(action: () => void) {
+    if (sessionActionLockRef.current) {
       return;
     }
 
-    sprintActionLockRef.current = true;
+    sessionActionLockRef.current = true;
     action();
     window.setTimeout(() => {
-      sprintActionLockRef.current = false;
+      sessionActionLockRef.current = false;
     }, 160);
   }
 
-  function handleSprintNext() {
-    runSprintAction(() => setSprintCurrentId(getNextSprintActionableId(sprintCurrentId)));
+  function handleSessionNext() {
+    runSessionAction(() => setSprintSession((current) => (current ? moveSession(current, 1) : current)));
   }
 
-  function handleSprintFieldChange(field: 'liveUrl' | 'notes', value: string) {
-    if (!sprintCurrentEntry) {
+  function handleSessionPrevious() {
+    runSessionAction(() => setSprintSession((current) => (current ? moveSession(current, -1) : current)));
+  }
+
+  function handleSessionFieldChange(field: 'liveUrl' | 'notes', value: string) {
+    if (!sessionCurrentEntry) {
       return;
     }
 
-    handleFieldChange(sprintCurrentEntry.record.id, field, value);
+    handleFieldChange(sessionCurrentEntry.record.id, field, value);
   }
 
-  function handleSprintOpen() {
-    if (!sprintCurrentEntry) {
+  function handleSessionOpen() {
+    if (!sessionCurrentEntry) {
       return;
     }
 
-    handleOpen(sprintCurrentEntry.record);
+    handleOpen(sessionCurrentEntry.record);
   }
 
-  function handleSprintStatusChange(status: DirectoryStatus) {
-    if (!sprintCurrentEntry) {
+  function handleSessionStatusChange(status: DirectoryStatus) {
+    if (!sessionCurrentEntry) {
       return;
     }
 
-    runSprintAction(() => {
-      const currentId = sprintCurrentEntry.record.id;
-      const nextId = sprintTerminalStatuses.has(status) ? getNextSprintActionableId(currentId) : currentId;
+    runSessionAction(() => {
+      const currentId = sessionCurrentEntry.record.id;
       handleStatusChange(currentId, status);
-      setSprintCurrentId(nextId);
+
+      if (!sessionTerminalStatuses.has(status)) {
+        return;
+      }
+
+      const predictedEntries = sessionEntries.map((entry) => ({
+        ...entry,
+        progress: entry.record.id === currentId ? { ...entry.progress, status } : entry.progress,
+      }));
+
+      setSprintSession((current) => {
+        if (!current) {
+          return current;
+        }
+
+        if (isSprintSessionComplete(predictedEntries)) {
+          return completeSprintSession(current);
+        }
+
+        return moveSessionToNextActionable(current, predictedEntries, currentId);
+      });
     });
   }
 
-  function handleSprintClearFollowUp() {
-    if (!sprintCurrentEntry) {
+  function handleSessionClearFollowUp() {
+    if (!sessionCurrentEntry) {
       return;
     }
 
-    handleClearFollowUp(sprintCurrentEntry.record.id);
+    handleClearFollowUp(sessionCurrentEntry.record.id);
   }
 
-  const handleSprintKeyDown = useEffectEvent((event: KeyboardEvent) => {
+  function handleSessionUpdateNotes(value: string) {
+    setSprintSession((current) => current ? { ...current, sessionNotes: value } : current);
+  }
+
+  function handleSessionOpenDetails() {
+    if (sessionCurrentEntry) {
+      setSelectedDirectoryId(sessionCurrentEntry.record.id);
+    }
+  }
+
+  const handleSessionKeyDown = useEffectEvent((event: KeyboardEvent) => {
     function isTypingTarget(target: EventTarget | null) {
       if (!(target instanceof HTMLElement)) {
         return false;
@@ -506,45 +583,49 @@ function App() {
       return;
     }
 
+    if (selectedDirectoryId) {
+      return;
+    }
+
     const key = event.key.toLowerCase();
 
     if (key === 'escape') {
       event.preventDefault();
-      handleExitSprint();
+      handleEndSession();
       return;
     }
 
-    if (!sprintCurrentEntry && !sprintComplete) {
+    if (!sessionCurrentEntry || sprintSession?.state !== 'active') {
       return;
     }
 
     if (key === 'enter' || key === 'o') {
       event.preventDefault();
-      handleSprintOpen();
+      handleSessionOpen();
     } else if (key === 's') {
       event.preventDefault();
-      handleSprintStatusChange('submitted');
+      handleSessionStatusChange('submitted');
     } else if (key === 'k' || key === 'x') {
       event.preventDefault();
-      handleSprintStatusChange('skipped');
+      handleSessionStatusChange('skipped');
     } else if (key === 'n') {
       event.preventDefault();
-      handleSprintNext();
+      handleSessionNext();
     }
   });
 
   useEffect(() => {
-    if (!sprintModeActive) {
+    if (sprintSession?.state !== 'active') {
       return;
     }
 
     function listener(event: KeyboardEvent) {
-      handleSprintKeyDown(event);
+      handleSessionKeyDown(event);
     }
 
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
-  }, [sprintModeActive]);
+  }, [sprintSession?.state]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(247,196,103,0.16),_transparent_28%),linear-gradient(180deg,_#f8f4ec_0%,_#f4efe6_42%,_#efe7da_100%)] text-stone-900">
@@ -608,27 +689,26 @@ function App() {
               </div>
             ) : null}
 
-            {sprintModeActive ? (
-              <div ref={sprintPanelRef} tabIndex={-1} className="focus:outline-none">
-                <SprintPanel
-                  completedCount={sprintCompletedCount}
-                  currentEntry={sprintCurrentEntry}
-                  isComplete={sprintComplete}
-                  onClearFollowUp={handleSprintClearFollowUp}
-                  onExit={handleExitSprint}
-                  onExport={handleExport}
-                  onFieldCommit={flushLocalState}
-                  onFieldChange={handleSprintFieldChange}
-                  onFollowUp={() => handleSprintStatusChange('follow_up')}
-                  onNext={handleSprintNext}
-                  onOpen={handleSprintOpen}
-                  onPublished={() => handleSprintStatusChange('published')}
-                  onSkip={() => handleSprintStatusChange('skipped')}
-                  onSubmitted={() => handleSprintStatusChange('submitted')}
-                  totalCount={sprintQueue.length}
-                />
-              </div>
-            ) : null}
+            <div ref={sessionPanelRef} tabIndex={-1} className="focus:outline-none">
+              <SprintSessionPanel
+                currentEntry={sessionCurrentEntry}
+                queueCounts={sessionQueueCounts}
+                session={sprintSession}
+                summary={sessionSummary}
+                onClearFollowUp={handleSessionClearFollowUp}
+                onEnd={handleEndSession}
+                onExport={handleExport}
+                onFieldChange={handleSessionFieldChange}
+                onFieldCommit={flushLocalState}
+                onNext={handleSessionNext}
+                onOpen={handleSessionOpen}
+                onOpenDetails={handleSessionOpenDetails}
+                onPrevious={handleSessionPrevious}
+                onStart={handleStartSession}
+                onStatusChange={handleSessionStatusChange}
+                onUpdateNotes={handleSessionUpdateNotes}
+              />
+            </div>
 
             <DirectoryTable
               directories={directories}
