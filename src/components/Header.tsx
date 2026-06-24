@@ -44,9 +44,16 @@ export function Header({
               Speed-run startup directory submissions.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-600 sm:text-[15px]">
-              Track SaaS directories, copy your startup assets, mark submissions, and save your progress no login
-              required.
+              SubmitSprint helps founders work through high-signal SaaS and startup directories without losing track of
+              links, notes, profile copy, live URLs, or submission status.
             </p>
+
+            <div className="mt-4 grid gap-2 text-xs leading-5 text-stone-600 sm:grid-cols-3">
+              <StepPill eyebrow="Step 1" title="Fill your profile" body="Keep your startup copy ready to paste." />
+              <StepPill eyebrow="Step 2" title="Run Fast 25" body="Start with the highest-priority directories." />
+              <StepPill eyebrow="Step 3" title="Export backups" body="Your progress stays local, so save a JSON backup." />
+            </div>
+
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <div className="flex flex-wrap gap-2">
                 <button
@@ -72,7 +79,9 @@ export function Header({
                   {undoLabel ?? 'Undo last action'}
                 </button>
               </div>
-              <div className="text-xs font-medium text-stone-500">Free · No login · Saves in this browser</div>
+              <div className="text-xs font-medium text-stone-500">
+                Free · No login · No server account · Saves in this browser
+              </div>
             </div>
           </div>
 
@@ -95,9 +104,21 @@ export function Header({
           <Metric label="Completion" value={`${completion}%`} emphasis />
         </div>
 
-        <div className="text-xs text-stone-500">{exportRecommendation}</div>
+        <div className="rounded-2xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-xs leading-5 text-stone-600">
+          {exportRecommendation}
+        </div>
       </div>
     </header>
+  );
+}
+
+function StepPill({ eyebrow, title, body }: { eyebrow: string; title: string; body: string }) {
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-stone-50/80 px-3 py-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-700">{eyebrow}</div>
+      <div className="mt-1 font-semibold text-stone-900">{title}</div>
+      <div className="mt-0.5 text-stone-500">{body}</div>
+    </div>
   );
 }
 

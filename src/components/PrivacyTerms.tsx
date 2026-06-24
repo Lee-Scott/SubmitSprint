@@ -7,6 +7,7 @@ export function PrivacyTerms() {
           <p>SubmitSprint has no account system, server database, analytics scripts, ads, or server-side user storage.</p>
           <p>Your startup profile, directory progress, notes, live URLs, settings, and backup metadata are stored in this browser.</p>
           <p>Backup files are downloaded JSON files controlled by you. They may contain private startup, founder, contact, notes, and submission data.</p>
+          <p>Clearing browser data, switching devices, or using a different browser can remove local progress unless you export and save a backup.</p>
           <p>If analytics, ads, accounts, or cloud sync are added later, this disclosure must be updated before launch.</p>
         </div>
       </details>
