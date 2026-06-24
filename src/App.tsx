@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 
 import { BackupControls } from './components/BackupControls';
+import { DirectoryDetailDrawer } from './components/DirectoryDetailDrawer';
 import { DirectoryTable } from './components/DirectoryTable';
 import { Header } from './components/Header';
 import { ProfilePanel } from './components/ProfilePanel';
@@ -74,6 +75,7 @@ function App() {
   const [sprintModeActive, setSprintModeActive] = useState(false);
   const [sprintQueueIds, setSprintQueueIds] = useState<string[]>([]);
   const [sprintCurrentId, setSprintCurrentId] = useState<string>();
+  const [selectedDirectoryId, setSelectedDirectoryId] = useState<string>();
   const [lastUndo, setLastUndo] = useState<{ directoryId: string; previous: DirectoryProgress; label: string }>();
 
   useEffect(() => {
@@ -199,6 +201,10 @@ function App() {
     sprintActionableEntries[0];
   const sprintComplete = sprintModeActive && sprintQueue.length > 0 && sprintActionableEntries.length === 0;
   const orphanProgressRecords = useMemo(() => getOrphanProgressRecords(progressMap, records), [progressMap, records]);
+  const selectedDirectoryEntry = useMemo(
+    () => mergedDirectories.find(({ record }) => record.id === selectedDirectoryId),
+    [mergedDirectories, selectedDirectoryId],
+  );
 
   function focusWorkspace() {
     workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -370,6 +376,9 @@ function App() {
     });
     setMessage(result.message);
     setLastUndo(undefined);
+    if (selectedDirectoryId && !records.some((record) => record.id === selectedDirectoryId)) {
+      setSelectedDirectoryId(undefined);
+    }
   }
 
   function handleReset() {
@@ -388,6 +397,7 @@ function App() {
     setSprintModeActive(false);
     setSprintQueueIds([]);
     setSprintCurrentId(undefined);
+    setSelectedDirectoryId(undefined);
     setLastUndo(undefined);
   }
 
@@ -626,6 +636,7 @@ function App() {
               onFieldCommit={flushLocalState}
               onFieldChange={handleFieldChange}
               onOpen={handleOpen}
+              onSelectDirectory={setSelectedDirectoryId}
               onStatusChange={handleStatusChange}
             />
           </main>
@@ -659,6 +670,18 @@ function App() {
           <PrivacyTerms />
         </footer>
       </div>
+
+      <DirectoryDetailDrawer
+        entry={selectedDirectoryEntry}
+        profile={profile}
+        onClearFollowUp={handleClearFollowUp}
+        onClose={() => setSelectedDirectoryId(undefined)}
+        onCopy={handleCopy}
+        onFieldChange={handleFieldChange}
+        onFieldCommit={flushLocalState}
+        onOpen={handleOpen}
+        onStatusChange={handleStatusChange}
+      />
     </div>
   );
 }

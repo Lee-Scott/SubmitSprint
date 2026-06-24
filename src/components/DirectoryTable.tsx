@@ -14,11 +14,20 @@ type DirectoryTableProps = {
   onClearFollowUp: (directoryId: string) => void;
   onFieldCommit: () => void;
   onOpen: (record: DirectoryWithProgress['record']) => void;
+  onSelectDirectory: (directoryId: string) => void;
   onStatusChange: (directoryId: string, status: DirectoryStatus) => void;
   onFieldChange: (directoryId: string, field: 'liveUrl' | 'notes' | 'skipReason', value: string) => void;
 };
 
-export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, onFieldCommit, onOpen, onStatusChange }: DirectoryTableProps) {
+export function DirectoryTable({
+  directories,
+  onClearFollowUp,
+  onFieldChange,
+  onFieldCommit,
+  onOpen,
+  onSelectDirectory,
+  onStatusChange,
+}: DirectoryTableProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const [isDesktopBoard, setIsDesktopBoard] = useState(false);
 
@@ -171,12 +180,21 @@ export function DirectoryTable({ directories, onClearFollowUp, onFieldChange, on
                       >
                         Open
                       </button>
-                      <a
-                        className="block rounded-full border border-stone-200 bg-white px-3 py-1.5 text-center text-xs font-semibold text-stone-600 transition hover:border-stone-300 hover:bg-stone-50 lg:mt-1 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:text-[11px] lg:underline lg:decoration-stone-300 lg:underline-offset-2 lg:hover:bg-transparent lg:hover:text-stone-800"
-                        href={createDirectoryReportMailto(entry.record, entry.progress)}
-                      >
-                        Report
-                      </a>
+                      <div className="flex justify-center gap-2 lg:mt-1">
+                        <button
+                          className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-50 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:text-[11px] lg:underline lg:decoration-stone-300 lg:underline-offset-2 lg:hover:bg-transparent lg:hover:text-stone-900"
+                          onClick={() => onSelectDirectory(entry.record.id)}
+                          type="button"
+                        >
+                          Work
+                        </button>
+                        <a
+                          className="block rounded-full border border-stone-200 bg-white px-3 py-1.5 text-center text-xs font-semibold text-stone-600 transition hover:border-stone-300 hover:bg-stone-50 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:text-[11px] lg:underline lg:decoration-stone-300 lg:underline-offset-2 lg:hover:bg-transparent lg:hover:text-stone-800"
+                          href={createDirectoryReportMailto(entry.record, entry.progress)}
+                        >
+                          Report
+                        </a>
+                      </div>
                     </div>
                     <div className="order-5 lg:order-none">
                       <input
