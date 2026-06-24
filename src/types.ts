@@ -76,6 +76,40 @@ export type SubmitSprintBackup = {
   settings?: Record<string, unknown>;
 };
 
+export type SprintSessionType =
+  | 'fast_25'
+  | 'elite_50'
+  | 'start_here'
+  | 'continue_unfinished'
+  | 'current_smart_view';
+
+export type SprintSessionState = 'active' | 'completed';
+
+export type SubmissionSprintSession = {
+  id: string;
+  startedAt: string;
+  completedAt?: string;
+  queueType: SprintSessionType;
+  queueName: string;
+  directoryIds: string[];
+  currentDirectoryId?: string;
+  currentIndex: number;
+  initialCount: number;
+  sessionNotes?: string;
+  state: SprintSessionState;
+};
+
+export type SprintSessionSummary = {
+  attempted: number;
+  completed: number;
+  submitted: number;
+  published: number;
+  skipped: number;
+  broken: number;
+  followUp: number;
+  remaining: number;
+};
+
 export type SmartViewId =
   | 'start_here'
   | 'fast_25'

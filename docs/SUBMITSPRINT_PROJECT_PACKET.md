@@ -287,3 +287,12 @@ Script details from `package.json`:
 5. Add tests for malformed imports and generated directory records.
    - Likely files: `src/test/backup.test.ts`, `src/test/importer.test.ts`, possibly a new dataset validation test under `src/test/`.
    - Validate with: `npm test`.
+
+## 12. Repo-Local Workflow Docs
+
+Durable Codex workflow guidance now lives in:
+
+- `docs/WORKFLOW.md`
+- `docs/VERIFICATION.md`
+- `docs/LESSONS_LEARNED.md`
+- `AGENTS.md`

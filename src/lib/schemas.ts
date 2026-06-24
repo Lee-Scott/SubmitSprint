@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { DirectoryStatus, LinkStatus, SmartViewId } from '../types';
+import type { DirectoryStatus, LinkStatus, SmartViewId, SprintSessionState, SprintSessionType } from '../types';
 
 const directoryStatusValues = ['todo', 'opened', 'submitted', 'published', 'follow_up', 'skipped', 'broken'] as const satisfies readonly DirectoryStatus[];
 const smartViewIdValues = [
@@ -17,6 +17,14 @@ const smartViewIdValues = [
   'skipped',
 ] as const satisfies readonly SmartViewId[];
 const linkStatusValues = ['untested', 'reviewed', 'suspicious', 'broken', 'needs_review'] as const satisfies readonly LinkStatus[];
+const sprintSessionTypeValues = [
+  'fast_25',
+  'elite_50',
+  'start_here',
+  'continue_unfinished',
+  'current_smart_view',
+] as const satisfies readonly SprintSessionType[];
+const sprintSessionStateValues = ['active', 'completed'] as const satisfies readonly SprintSessionState[];
 
 function isValidDateString(value: string) {
   return !Number.isNaN(new Date(value).getTime());
@@ -37,6 +45,8 @@ const httpUrlStringSchema = z.string().refine(isValidHttpUrlString, 'Expected an
 export const DirectoryStatusSchema = z.enum(directoryStatusValues);
 export const SmartViewIdSchema = z.enum(smartViewIdValues);
 export const LinkStatusSchema = z.enum(linkStatusValues);
+export const SprintSessionTypeSchema = z.enum(sprintSessionTypeValues);
+export const SprintSessionStateSchema = z.enum(sprintSessionStateValues);
 
 export const SettingsStateSchema = z.object({
   activeView: SmartViewIdSchema,
@@ -81,6 +91,20 @@ export const StartupProfileSchema = z.object({
 export const BackupMetaSchema = z.object({
   lastExportedAt: dateStringSchema.optional(),
   meaningfulChangesSinceExport: z.number().int().nonnegative(),
+});
+
+export const SubmissionSprintSessionSchema = z.object({
+  id: z.string().min(1).max(120),
+  startedAt: dateStringSchema,
+  completedAt: dateStringSchema.optional(),
+  queueType: SprintSessionTypeSchema,
+  queueName: z.string().min(1).max(120),
+  directoryIds: z.array(z.string().min(1).max(300)).max(5000),
+  currentDirectoryId: z.string().min(1).max(300).optional(),
+  currentIndex: z.number().int().nonnegative(),
+  initialCount: z.number().int().nonnegative(),
+  sessionNotes: z.string().max(5000).optional(),
+  state: SprintSessionStateSchema,
 });
 
 export const DirectoryRecordSchema = z.object({
